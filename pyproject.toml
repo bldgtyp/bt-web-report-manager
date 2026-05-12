@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bt-web-report-manager"
+version = "0.0.1"
+description = "PySide6 macOS dashboard that wraps btwr — distributed as a DMG via GitHub Releases."
+readme = "README.md"
+license = { text = "GPL-3.0-or-later" }
+requires-python = ">=3.11"
+authors = [{ name = "BLDGTYP", email = "phtools@bldgtyp.com" }]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Operating System :: MacOS",
+    "Environment :: MacOS X",
+    "Typing :: Typed",
+]
+dependencies = [
+    "PySide6>=6.6",
+    "keyring>=24.0",
+    "pyyaml>=6.0",
+    "pydantic>=2.0",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov", "black", "mypy"]
+package = ["briefcase>=0.3"]
+
+[project.scripts]
+btwr-manager = "bt_web_report_manager.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/bldgtyp/bt-web-report-manager"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["bt_web_report_manager*"]
+
+[tool.black]
+line-length = 120
