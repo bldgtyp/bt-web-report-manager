@@ -8,11 +8,13 @@ version = "0.0.1"
 description = "PySide6 macOS dashboard that wraps btwr — distributed as a DMG via GitHub Releases."
 readme = "README.md"
 license = { text = "GPL-3.0-or-later" }
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 authors = [{ name = "BLDGTYP", email = "phtools@bldgtyp.com" }]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Operating System :: MacOS",
     "Environment :: MacOS X",
     "Typing :: Typed",
@@ -34,6 +36,39 @@ btwr-manager = "bt_web_report_manager.__main__:main"
 
 [project.urls]
 Homepage = "https://github.com/bldgtyp/bt-web-report-manager"
+
+[tool.briefcase]
+project_name = "bt-web-report-manager"
+bundle = "com.bldgtyp"
+version = "0.0.1"
+url = "https://github.com/bldgtyp/bt-web-report-manager"
+license = "GPL-3.0-or-later"
+license_files = []
+author = "BLDGTYP"
+author_email = "phtools@bldgtyp.com"
+
+[tool.briefcase.app.bt_web_report_manager]
+formal_name = "bt-web-report Manager"
+description = "PySide6 macOS dashboard for BLDGTYP web reports."
+long_description = "A native macOS manager that discovers bt-web-report projects, shows project status, and runs scrape, preview, git, update, and project-planning workflows."
+sources = ["src/bt_web_report_manager"]
+icon = "resources/icon"
+requires = [
+    "PySide6>=6.6",
+    "keyring>=24.0",
+    "pyyaml>=6.0",
+    "pydantic>=2.0",
+    "requests>=2.31",
+]
+
+[tool.briefcase.app.bt_web_report_manager.macOS]
+min_os_version = "12.0"
+
+[tool.briefcase.app.bt_web_report_manager.macOS.app]
+universal_build = true
+
+[tool.briefcase.app.bt_web_report_manager.macOS.dmg]
+volume_name = "bt-web-report Manager"
 
 [tool.setuptools.packages.find]
 where = ["src"]

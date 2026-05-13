@@ -6,5 +6,6 @@ __pycache__/
 _coverage_html/
 dist/
 build/
+logs/
 .DS_Store
 .manual/

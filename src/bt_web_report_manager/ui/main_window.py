@@ -6,8 +6,8 @@ from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QThread, QTimer, Qt
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtCore import QThread, QTimer, Qt, QUrl
+from PySide6.QtGui import QCloseEvent, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -49,8 +49,9 @@ from bt_web_report_manager.locks import (
 from bt_web_report_manager.models import ManagerSettings, ProjectStatus
 from bt_web_report_manager.projects import discover_projects
 from bt_web_report_manager.settings import save_settings
+from bt_web_report_manager.updates import ReleaseInfo
 from bt_web_report_manager.ui.command_runner import ProcessRunner
-from bt_web_report_manager.ui.dialogs import DoctorDialog, SettingsDialog
+from bt_web_report_manager.ui.dialogs import DoctorDialog, NewProjectWizard, SettingsDialog
 from bt_web_report_manager.ui.update_worker import UpdateWorker, coerce_update_result
 
 LOCK_REFRESH_INTERVAL_MS = 60_000
@@ -82,6 +83,9 @@ class MainWindow(QMainWindow):
     def _build_toolbar(self) -> None:
         toolbar = QToolBar("Manager")
         toolbar.setMovable(False)
+        new_project = QPushButton("New project")
+        new_project.clicked.connect(self.open_new_project_wizard)
+        toolbar.addWidget(new_project)
         refresh = QPushButton("Refresh")
         refresh.clicked.connect(self.refresh_projects)
         toolbar.addWidget(refresh)
@@ -232,6 +236,11 @@ class MainWindow(QMainWindow):
     def open_doctor(self) -> None:
         dialog = DoctorDialog(doctor(self.settings))
         dialog.exec()
+
+    def open_new_project_wizard(self) -> None:
+        dialog = NewProjectWizard(self.settings, self.runner)
+        dialog.exec()
+        self.refresh_projects()
 
     def check_updates(self) -> None:
         if self._update_thread is not None:
@@ -389,11 +398,30 @@ class MainWindow(QMainWindow):
         result = coerce_update_result(value)
         self._append_log(result.message)
         if result.ok and result.release is not None and result.release.is_update:
-            QMessageBox.information(
-                self,
-                "Update available",
-                f"{result.release.version} is available.\n\n{result.release.url}",
-            )
+            self._show_update_dialog(result.release)
+
+    def _show_update_dialog(self, release: ReleaseInfo) -> None:
+        message = QMessageBox(self)
+        message.setWindowTitle("Update available")
+        message.setIcon(QMessageBox.Icon.Information)
+        text = f"{release.version} is available."
+        if release.asset_name:
+            text += f"\n\nAsset: {release.asset_name}"
+        text += f"\n\nRelease page:\n{release.url}"
+        message.setText(text)
+        open_release = message.addButton("Open release page", QMessageBox.ButtonRole.AcceptRole)
+        download_asset = None
+        if release.asset_url:
+            download_asset = message.addButton("Download asset", QMessageBox.ButtonRole.ActionRole)
+        message.addButton("Later", QMessageBox.ButtonRole.RejectRole)
+        message.exec()
+        clicked = message.clickedButton()
+        if clicked == download_asset and release.asset_url:
+            QDesktopServices.openUrl(QUrl(release.asset_url))
+            self._append_log(f"Opening release asset: {release.asset_url}")
+        elif clicked == open_release:
+            QDesktopServices.openUrl(QUrl(release.url))
+            self._append_log(f"Opening release page: {release.url}")
 
     def _clear_update_worker(self) -> None:
         self._update_thread = None

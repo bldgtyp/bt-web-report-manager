@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="bt-web-report Manager icon">
+  <rect width="1024" height="1024" rx="228" fill="#243746"/>
+  <path d="M192 730V338l320-184 320 184v392H668V438H356v292H192Z" fill="#F7F4EE"/>
+  <path d="M356 438h312v110H356z" fill="#5B88A5"/>
+  <path d="M428 618h168v112H428z" fill="#C7396B"/>
+  <path d="M192 730h640v82H192z" fill="#F7F4EE" opacity=".86"/>
+</svg>

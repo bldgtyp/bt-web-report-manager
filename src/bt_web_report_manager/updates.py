@@ -17,6 +17,8 @@ class ReleaseInfo:
     url: str
     name: str | None
     body: str | None
+    asset_name: str | None
+    asset_url: str | None
     is_update: bool
 
 
@@ -41,12 +43,19 @@ def latest_release(owner: str, repo: str, current_version: str, timeout: float =
         html_url = raw.get("html_url")
         if not isinstance(tag, str) or not isinstance(html_url, str):
             continue
+        try:
+            is_update = compare_versions(tag, current_version) > 0
+        except ValueError:
+            continue
+        asset_name, asset_url = _preferred_asset(raw.get("assets"))
         return ReleaseInfo(
             version=tag,
             url=html_url,
             name=_optional_str(raw.get("name")),
             body=_optional_str(raw.get("body")),
-            is_update=compare_versions(tag, current_version) > 0,
+            asset_name=asset_name,
+            asset_url=asset_url,
+            is_update=is_update,
         )
     return None
 
@@ -78,3 +87,22 @@ def _version_tuple(value: str) -> tuple[int, int, int]:
 
 def _optional_str(value: Any) -> str | None:
     return value if isinstance(value, str) else None
+
+
+def _preferred_asset(value: Any) -> tuple[str | None, str | None]:
+    if not isinstance(value, list):
+        return (None, None)
+    assets: list[tuple[str, str]] = []
+    for raw in value:
+        if not isinstance(raw, dict):
+            continue
+        name = raw.get("name")
+        download_url = raw.get("browser_download_url")
+        if isinstance(name, str) and isinstance(download_url, str):
+            assets.append((name, download_url))
+    if not assets:
+        return (None, None)
+    for name, download_url in assets:
+        if name.lower().endswith(".dmg"):
+            return (name, download_url)
+    return assets[0]

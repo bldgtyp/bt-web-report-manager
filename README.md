@@ -9,6 +9,10 @@ parent uv workspace. It shells out to `btwr` as a subprocess (it never
 PySide6 + briefcase toolchain is heavy enough that mixing into the CLI's
 venv would be unpleasant.
 
+The manager is pinned to Python `>=3.11,<3.14` because Briefcase packaging
+depends on PySide6 wheels that are not available for the Briefcase Python 3.14
+support package yet.
+
 ## Dev quickstart
 
 ```bash
@@ -24,6 +28,21 @@ uv run pytest
 uv run black --check src tests
 uv run mypy src tests
 ```
+
+## Packaging
+
+Briefcase packaging is configured in `pyproject.toml`. Use the `package` extra
+only when building distributable artifacts:
+
+```bash
+uv sync --extra dev --extra package
+uv run --extra package briefcase create macOS app
+uv run --extra package briefcase build macOS app
+uv run --extra package briefcase package macOS app -p dmg
+```
+
+The signed/notarized release path is intentionally manual until Apple Developer
+credentials are confirmed. See `docs/release-checklist.md`.
 
 The app reads settings from
 `~/Library/Application Support/bt-web-report-manager/settings.yaml`.
