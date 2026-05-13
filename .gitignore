@@ -7,3 +7,4 @@ _coverage_html/
 dist/
 build/
 .DS_Store
+.manual/
