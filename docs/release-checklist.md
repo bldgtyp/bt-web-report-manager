@@ -1,10 +1,14 @@
 # bt-web-report Manager release checklist
 
-This is the manual release path for the Phase 5 macOS DMG. It stays manual
-until release ownership is moved into CI. A local Developer ID Application
-identity and notarization keychain profile are available:
+Manual release path for the macOS bundle. Stays manual until release
+ownership is moved into CI. A local Developer ID Application identity and
+notarization keychain profile are available:
 `Developer ID Application: Edwin May (JPJ3AJ5U8A)` and
 `bt-web-report-manager`.
+
+> **Note (2026-05-13)**: Packaging switched from Briefcase + DMG to
+> `nicegui-pack` (PyInstaller). The release artifact is a zipped `.app`
+> rather than a DMG. Bundle size dropped from ~500 MB to ~110 MB.
 
 ## Build locally
 
@@ -12,99 +16,87 @@ Run from `bt-web-report-manager/`:
 
 ```bash
 uv sync --extra dev --extra package
-uv run black --check src tests scripts
-uv run mypy src tests scripts/setup_slice5_manual_test.py scripts/setup_slice6_manual_test.py
+uv run black --check src tests
+uv run mypy src tests
 uv run pytest
-uv run --extra package briefcase create macOS app
-uv run --extra package briefcase build macOS app
-uv run --extra package briefcase package macOS app -p dmg \
-  --identity "Developer ID Application: Edwin May (JPJ3AJ5U8A)"
+./scripts/build-app.sh
 ```
 
-Expected artifacts:
-
-- `.app`: `build/bt_web_report_manager/macos/app/bt-web-report Manager.app`
-- DMG: `dist/bt-web-report Manager-<version>.dmg`
-
-If Briefcase reports that source, dependency, icon, or metadata changes are not
-reflected, rerun the relevant command with `-u`, `-r`, `--update-resources`, or
-rerun `briefcase create` as prompted by Briefcase.
-
-## Signed and notarized local smoke
-
-Use this path before sharing outside Ed's machine:
+Set `CODESIGN_IDENTITY` before running the build script to sign with a
+real Developer ID (defaults to ad-hoc `-` for local testing so Gatekeeper
+will open the bundle on the build machine):
 
 ```bash
-open "dist/bt-web-report Manager-0.0.1.dmg"
+CODESIGN_IDENTITY="Developer ID Application: Edwin May (JPJ3AJ5U8A)" \
+  ./scripts/build-app.sh
 ```
 
-Then:
+Expected artifact: `dist/bt-web-report Manager.app`.
 
-1. Drag `bt-web-report Manager.app` into `/Applications` or run it from the
-   mounted DMG.
-2. Launch from Finder, not from the dev shell.
-3. Open Settings and set executable paths for `btwr`, `pnpm`, `git`, `gh`, and
-   the editor if the packaged app cannot see shell PATH.
-4. Confirm Doctor reports settings-folder write access and expected tool paths.
-5. Confirm Vandam is discovered from Dropbox with meaningful status badges.
-6. Click Check updates and confirm the GitHub Releases check logs success or a
-   non-blocking failure.
-7. Run a safe Vandam Dev preview smoke and stop it from the GUI.
-8. Run Commit & push only against a disposable repo or controlled branch.
+## Local smoke
 
-The DMG above should be Developer ID signed, notarized, and stapled. Verify it
-before sharing:
+Before sharing, run the bundle from `/Applications/`:
 
 ```bash
-spctl -a -t open --context context:primary-signature -vv "dist/bt-web-report Manager-0.0.1.dmg"
-stapler validate "dist/bt-web-report Manager-0.0.1.dmg"
-hdiutil verify "dist/bt-web-report Manager-0.0.1.dmg"
+cp -R "dist/bt-web-report Manager.app" /Applications/
+open "/Applications/bt-web-report Manager.app"
 ```
 
-## Signed/notarized release
+Then exercise:
 
-Use this path before publishing a normal GitHub Release:
+1. App opens (browser tab or `BTWR_MANAGER_NATIVE=1` window) and projects
+   list populates from Dropbox.
+2. Doctor reports settings-folder write access and all expected tool paths.
+3. Settings round-trips: change `lock_ttl_hours`, save, reopen, value
+   persists.
+4. Check updates logs a result against `bldgtyp/bt-web-report-manager`.
+5. Vandam Dev preview starts and Stop kills the dev server cleanly.
+6. Commit & push only against a disposable repo or controlled branch.
 
-1. Confirm the local machine has an Apple Developer ID Application certificate
-   for BLDGTYP in Keychain Access.
-2. Confirm notarization credentials are available locally:
+## Notarize
 
-   ```bash
-   xcrun notarytool history --keychain-profile bt-web-report-manager
-   ```
+```bash
+VERSION=$(uv run python -c "from bt_web_report_manager import __version__ as v; print(v)")
 
-3. If notary credentials are not already stored, create a local Keychain profile
-   from a terminal prompt:
+# Zip the app for upload
+ditto -c -k --keepParent "dist/bt-web-report Manager.app" \
+  "dist/bt-web-report-manager-${VERSION}.zip"
 
-   ```bash
-   xcrun notarytool store-credentials bt-web-report-manager \
-     --apple-id "ed.p.may@gmail.com" \
-     --team-id "JPJ3AJ5U8A"
-   ```
+# Submit for notarization (uses the stored keychain profile)
+xcrun notarytool submit "dist/bt-web-report-manager-${VERSION}.zip" \
+  --keychain-profile bt-web-report-manager \
+  --wait
 
-   Enter the app-specific password at the secure prompt. Do not store the
-   password in this repo.
-4. Run the same checks and Briefcase create/build commands.
-5. Package with the Developer ID identity and allow Briefcase to notarize:
+# Staple after success and re-zip with the staple
+xcrun stapler staple "dist/bt-web-report Manager.app"
+rm "dist/bt-web-report-manager-${VERSION}.zip"
+ditto -c -k --keepParent "dist/bt-web-report Manager.app" \
+  "dist/bt-web-report-manager-${VERSION}.zip"
+```
 
-   ```bash
-   uv run --extra package briefcase package macOS app -p dmg \
-     --identity "Developer ID Application: Edwin May (JPJ3AJ5U8A)"
-   ```
+If the notarization profile is not yet stored:
 
-6. If Briefcase does not automatically notarize from local credentials,
-   sign the `.app`, package the DMG, notarize the DMG, staple the ticket, and
-   verify with `spctl`.
-7. Create a GitHub Release for tag `v<version>` in
-   `bldgtyp/bt-web-report-manager`.
-8. Upload the DMG with a filename like
-   `bt-web-report-manager-<version>.dmg`; the Manager update check prefers the
-   first `.dmg` release asset.
-9. Install the uploaded DMG on Ed's Mac and confirm Finder launch, update check,
-   settings, Doctor, Vandam discovery, Dev preview, and disposable Commit & push.
+```bash
+xcrun notarytool store-credentials bt-web-report-manager \
+  --apple-id "ed.p.may@gmail.com" \
+  --team-id "JPJ3AJ5U8A"
+```
+
+## Publish
+
+```bash
+gh release create "v${VERSION}" \
+  "dist/bt-web-report-manager-${VERSION}.zip" \
+  --title "v${VERSION}" \
+  --notes-file release-notes.md
+```
+
+The asset name pattern `bt-web-report-manager-<version>.zip` is what the
+in-app update dialog's "Download asset" button looks for.
 
 ## CI decision
 
-Do not add a GitHub Actions release workflow until signing and notarization
-credentials are intentionally configured for CI. For now, the release owner
-builds locally, notarizes locally, and uploads the DMG to GitHub Releases.
+Do not add a GitHub Actions release workflow yet. Until signing and
+notarization credentials are intentionally configured for CI, the release
+owner builds locally, notarizes locally, and uploads the zipped `.app` to
+GitHub Releases.

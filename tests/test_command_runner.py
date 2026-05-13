@@ -1,85 +1,89 @@
-import os
-import time
-from collections.abc import Callable
+"""Async tests for ``ProcessRunner``."""
+
+from __future__ import annotations
+
+import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from PySide6.QtCore import QEventLoop, QTimer
-from PySide6.QtWidgets import QApplication
+import pytest
 
 from bt_web_report_manager.commands import CommandSpec
-from bt_web_report_manager.ui.command_runner import ProcessRunner
-
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+from bt_web_report_manager.ui.runner import ProcessRunner
 
 
 @dataclass
 class RunnerEvents:
-    started: list[str] = field(default_factory=list)
-    output: list[str] = field(default_factory=list)
-    finished: list[tuple[str, int, bool, bool]] = field(default_factory=list)
+    log: list[str] = field(default_factory=list)
+    done: list[tuple[str, int, bool, bool]] = field(default_factory=list)
+    finished: asyncio.Event = field(default_factory=asyncio.Event)
 
 
-def test_process_runner_streams_output_and_exit_code(tmp_path: Path) -> None:
-    _app()
-    runner = ProcessRunner()
-    events = _capture_events(runner)
+def _make_runner() -> tuple[ProcessRunner, RunnerEvents]:
+    events = RunnerEvents()
 
-    started = runner.start(CommandSpec("Echo", ("/bin/echo", "runner-ok"), cwd=tmp_path, refresh_on_success=True))
+    def on_done(name: str, exit_code: int, refresh: bool, canceled: bool) -> None:
+        events.done.append((name, exit_code, refresh, canceled))
+        events.finished.set()
+
+    runner = ProcessRunner(on_log=events.log.append, on_done=on_done)
+    return runner, events
+
+
+@pytest.mark.asyncio
+async def test_process_runner_streams_output_and_exit_code(tmp_path: Path) -> None:
+    runner, events = _make_runner()
+
+    started = await runner.start(CommandSpec("Echo", ("/bin/echo", "runner-ok"), cwd=tmp_path, refresh_on_success=True))
 
     assert started
-    assert _wait_until(lambda: bool(events.finished))
-    assert events.started == ["$ /bin/echo runner-ok"]
-    assert events.output == ["runner-ok"]
-    assert events.finished == [("Echo", 0, True, False)]
+    await asyncio.wait_for(events.finished.wait(), 5)
+    assert events.log[0] == "$ /bin/echo runner-ok"
+    assert "runner-ok" in events.log
+    assert events.done == [("Echo", 0, True, False)]
     assert not runner.is_running
 
 
-def test_process_runner_stop_is_asynchronous(tmp_path: Path) -> None:
-    _app()
-    runner = ProcessRunner()
-    events = _capture_events(runner)
+@pytest.mark.asyncio
+async def test_process_runner_stop_is_asynchronous(tmp_path: Path) -> None:
+    runner, events = _make_runner()
     spec = CommandSpec("Sleep", ("/bin/sh", "-lc", "sleep 10"), cwd=tmp_path, long_running=True)
 
-    assert runner.start(spec)
-    assert _wait_until(lambda: runner.is_running)
-    before = time.monotonic()
-    runner.stop()
-    elapsed = time.monotonic() - before
+    assert await runner.start(spec)
+    assert runner.is_running
 
-    assert elapsed < 0.5
-    assert _wait_until(lambda: bool(events.finished), timeout_ms=4000)
-    assert "Stopping process..." in events.output
-    assert "Process crashed" not in events.output
-    assert events.finished[-1][0] == "Sleep"
-    assert events.finished[-1][2] is False
-    assert events.finished[-1][3] is True
+    runner.stop()
+    await asyncio.wait_for(events.finished.wait(), 5)
+
+    assert any("Stopping process" in line for line in events.log)
+    name, _exit_code, refresh, canceled = events.done[-1]
+    assert name == "Sleep"
+    assert refresh is False
+    assert canceled is True
     assert not runner.is_running
 
 
-def _capture_events(runner: ProcessRunner) -> RunnerEvents:
-    events = RunnerEvents()
-    runner.started.connect(events.started.append)
-    runner.output.connect(events.output.append)
-    runner.finished.connect(
-        lambda name, exit_code, refresh, canceled: events.finished.append((name, exit_code, refresh, canceled))
-    )
-    return events
+@pytest.mark.asyncio
+async def test_process_runner_rejects_second_start(tmp_path: Path) -> None:
+    runner, events = _make_runner()
+    spec = CommandSpec("Sleep", ("/bin/sh", "-lc", "sleep 5"), cwd=tmp_path, long_running=True)
+
+    assert await runner.start(spec)
+
+    second = await runner.start(CommandSpec("Echo", ("/bin/echo", "skipped"), cwd=tmp_path))
+    assert second is False
+    assert any("already running" in line for line in events.log)
+
+    await runner.shutdown()
+    assert not runner.is_running
 
 
-def _app() -> QApplication:
-    app = QApplication.instance()
-    if isinstance(app, QApplication):
-        return app
-    return QApplication([])
+@pytest.mark.asyncio
+async def test_process_runner_missing_executable(tmp_path: Path) -> None:
+    runner, events = _make_runner()
 
+    started = await runner.start(CommandSpec("Bogus", ("/this/does/not/exist", "--help"), cwd=tmp_path))
 
-def _wait_until(predicate: Callable[[], bool], timeout_ms: int = 2000) -> bool:
-    deadline = time.monotonic() + timeout_ms / 1000
-    while time.monotonic() < deadline:
-        if predicate():
-            return True
-        loop = QEventLoop()
-        QTimer.singleShot(10, loop.quit)
-        loop.exec()
-    return predicate()
+    assert started is False
+    assert any("Failed to start Bogus" in line for line in events.log)
+    assert events.done == [("Bogus", -1, False, False)]

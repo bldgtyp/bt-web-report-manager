@@ -1,47 +1,48 @@
-import os
+"""Tests for the new-project wizard's plan + manual-checklist behaviour.
+
+The wizard's UI rendering now lives in ``ui/new_project.py`` (NiceGUI) and
+needs a browser to drive. The plan/checklist logic itself was already in
+``new_project.py`` (un-changed) and is the load-bearing part — these tests
+exercise that surface directly.
+"""
+
+from __future__ import annotations
+
 from pathlib import Path
 
-from PySide6.QtWidgets import QApplication
-
 from bt_web_report_manager.models import ManagerSettings
-from bt_web_report_manager.ui.command_runner import ProcessRunner
-from bt_web_report_manager.ui.dialogs import NewProjectWizard
+from bt_web_report_manager.new_project import (
+    bootstrap_command_available,
+    build_new_project_plan,
+)
 
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-
-def test_new_project_wizard_build_page_shows_manual_blocker_when_btwr_new_is_missing(tmp_path: Path) -> None:
-    _app()
+def test_build_new_project_plan_produces_summary_and_manual_checklist(tmp_path: Path) -> None:
     local_folder = tmp_path / "Project"
-    settings = ManagerSettings(projects_root=tmp_path, btwr_executable="btwr-missing-for-new-project-test")
-    runner = ProcessRunner()
-    wizard = NewProjectWizard(settings, runner)
-    wizard.show()
-    _app().processEvents()
+    plan = build_new_project_plan(
+        project_title="Project",
+        slug="project",
+        client_name=None,
+        building_name=None,
+        phase=None,
+        local_folder=local_folder,
+        target_web_path=local_folder / "04_Web",
+        phpp_path=None,
+        repo_name="bt-proj-project",
+        production_url="https://project.bldgtyp.com",
+    )
 
-    wizard.info_page.project_title.setText("Project")
-    wizard.info_page.slug.setText("project")
-    wizard.info_page.local_folder.setText(str(local_folder))
-    wizard.info_page.target_web_path.setText(str(local_folder / "04_Web"))
+    summary = plan.summary_lines()
+    checklist = plan.manual_checklist()
 
-    assert wizard.validateCurrentPage()
-    wizard.preview_page.initializePage()
-    wizard.build_page.initializePage()
-    _app().processEvents()
-
-    preview = wizard.preview_page.preview.toPlainText()
-    log = wizard.build_page.log.toPlainText()
-    assert "Project title: Project" in preview
-    assert "Phase 7 dependency: btwr new is not implemented" in log
-    assert f"Create target web folder: {local_folder / '04_Web'}" in log
-    assert not runner.is_running
-
-    wizard.close()
-    runner.shutdown()
+    assert any("Project title: Project" in line for line in summary)
+    assert any("Phase 7 dependency: btwr new is not implemented" in line for line in checklist)
+    assert any(f"Create target web folder: {local_folder / '04_Web'}" in line for line in checklist)
 
 
-def _app() -> QApplication:
-    app = QApplication.instance()
-    if isinstance(app, QApplication):
-        return app
-    return QApplication([])
+def test_bootstrap_command_available_returns_false_for_missing_btwr(tmp_path: Path) -> None:
+    settings = ManagerSettings(
+        projects_root=tmp_path,
+        btwr_executable="btwr-missing-for-new-project-test",
+    )
+    assert bootstrap_command_available(settings) is False

@@ -1,251 +1,285 @@
-"""Small Qt dialogs for settings and setup checks."""
+"""Settings / Doctor / confirm / prompt dialog helpers."""
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
-from PySide6.QtWidgets import (
-    QDialog,
-    QDialogButtonBox,
-    QFormLayout,
-    QLabel,
-    QLineEdit,
-    QMessageBox,
-    QSpinBox,
-    QTableWidget,
-    QTableWidgetItem,
-    QTextEdit,
-    QVBoxLayout,
-    QWizard,
-    QWizardPage,
-)
+from nicegui import ui
 
+from bt_web_report_manager.commands import doctor
 from bt_web_report_manager.models import ManagerSettings, ToolStatus
-from bt_web_report_manager.new_project import (
-    NewProjectPlan,
-    bootstrap_command,
-    bootstrap_command_available,
-    build_new_project_plan,
-)
-from bt_web_report_manager.ui.command_runner import ProcessRunner
+from bt_web_report_manager.settings import save_settings
+from bt_web_report_manager.ui.state import ManagerState
 
 
-class SettingsDialog(QDialog):
-    def __init__(self, settings: ManagerSettings) -> None:
-        super().__init__()
-        self.setWindowTitle("Settings")
-        self.resize(720, 420)
+async def confirm_dialog(
+    *,
+    title: str,
+    message: str,
+    confirm_label: str = "Continue",
+    cancel_label: str = "Cancel",
+    danger: bool = False,
+) -> bool:
+    """Modal confirm. Returns True iff the user clicked confirm."""
+    dialog = ui.dialog().props("persistent")
+    result: dict[str, bool] = {"value": False}
 
-        layout = QVBoxLayout(self)
-        form = QFormLayout()
-        self.projects_root = QLineEdit(str(settings.projects_root))
-        self.extra_project_paths = QTextEdit()
-        self.extra_project_paths.setPlaceholderText("One project path or project-root path per line")
-        self.extra_project_paths.setPlainText("\n".join(str(path) for path in settings.extra_project_paths))
-        self.btwr_executable = QLineEdit(settings.btwr_executable)
-        self.pnpm_executable = QLineEdit(settings.pnpm_executable)
-        self.git_executable = QLineEdit(settings.git_executable)
-        self.gh_executable = QLineEdit(settings.gh_executable)
-        self.editor_command = QLineEdit(settings.editor_command)
-        self.github_owner = QLineEdit(settings.github_owner)
-        self.github_repo = QLineEdit(settings.github_repo)
-        self.lock_ttl_hours = QSpinBox()
-        self.lock_ttl_hours.setRange(1, 48)
-        self.lock_ttl_hours.setValue(settings.lock_ttl_hours)
-
-        form.addRow("Projects root", self.projects_root)
-        form.addRow("Extra project paths", self.extra_project_paths)
-        form.addRow("btwr", self.btwr_executable)
-        form.addRow("pnpm", self.pnpm_executable)
-        form.addRow("git", self.git_executable)
-        form.addRow("gh", self.gh_executable)
-        form.addRow("Code editor", self.editor_command)
-        form.addRow("GitHub owner", self.github_owner)
-        form.addRow("GitHub repo", self.github_repo)
-        form.addRow("Lock TTL hours", self.lock_ttl_hours)
-        layout.addLayout(form)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-    def settings(self) -> ManagerSettings:
-        extra_paths = tuple(
-            Path(line.strip()).expanduser()
-            for line in self.extra_project_paths.toPlainText().splitlines()
-            if line.strip()
+    with dialog, ui.card().classes("min-w-[420px] max-w-[560px]"):
+        ui.label(title).classes("dialog-title")
+        ui.html(message.replace("\n", "<br>")).classes("text-sm").style(
+            "color: var(--text-2); line-height: 1.5; white-space: pre-wrap;"
         )
-        return ManagerSettings(
-            projects_root=Path(self.projects_root.text()).expanduser(),
-            extra_project_paths=extra_paths,
-            btwr_executable=self.btwr_executable.text().strip() or "btwr",
-            pnpm_executable=self.pnpm_executable.text().strip() or "pnpm",
-            git_executable=self.git_executable.text().strip() or "git",
-            gh_executable=self.gh_executable.text().strip() or "gh",
-            editor_command=self.editor_command.text().strip() or "code",
-            github_owner=self.github_owner.text().strip() or "bldgtyp",
-            github_repo=self.github_repo.text().strip() or "bt-web-report-manager",
-            lock_ttl_hours=self.lock_ttl_hours.value(),
+        with ui.row().classes("w-full justify-end items-center gap-2 mt-2"):
+
+            def _cancel() -> None:
+                result["value"] = False
+                dialog.submit(False)
+
+            def _ok() -> None:
+                result["value"] = True
+                dialog.submit(True)
+
+            ui.button(cancel_label, on_click=_cancel, color=None).props("flat unelevated no-caps").classes("action-btn")
+            ui.button(confirm_label, on_click=_ok, color=None).props("flat unelevated no-caps autofocus").classes(
+                "action-btn " + ("is-danger" if danger else "is-warning")
+            )
+
+    answer = await dialog
+    return bool(answer)
+
+
+async def prompt_dialog(
+    *,
+    title: str,
+    label: str,
+    default: str = "",
+    placeholder: str = "",
+    confirm_label: str = "OK",
+) -> str | None:
+    """Single-line text prompt. Returns None when canceled, the trimmed value otherwise."""
+    dialog = ui.dialog().props("persistent")
+    with dialog, ui.card().classes("min-w-[480px]"):
+        ui.label(title).classes("dialog-title")
+        ui.label(label).classes("text-xs").style("color: var(--text-2);")
+        input_el = ui.input(value=default, placeholder=placeholder).props("outlined dense autofocus").classes("w-full")
+
+        with ui.row().classes("w-full justify-end items-center gap-2"):
+
+            def _cancel() -> None:
+                dialog.submit(None)
+
+            def _ok() -> None:
+                dialog.submit(input_el.value or "")
+
+            ui.button("Cancel", on_click=_cancel, color=None).props("flat unelevated no-caps").classes("action-btn")
+            ui.button(confirm_label, on_click=_ok, color=None).props("flat unelevated no-caps").classes(
+                "action-btn is-primary"
+            )
+
+        input_el.on("keydown.enter", _ok)
+
+    answer = await dialog
+    if answer is None:
+        return None
+    return str(answer).strip() or None
+
+
+async def info_dialog(*, title: str, message: str, dismiss_label: str = "Close") -> None:
+    dialog = ui.dialog()
+    with dialog, ui.card().classes("min-w-[420px]"):
+        ui.label(title).classes("dialog-title")
+        ui.html(message.replace("\n", "<br>")).classes("text-sm").style(
+            "color: var(--text-2); line-height: 1.5; white-space: pre-wrap;"
+        )
+        with ui.row().classes("w-full justify-end"):
+            ui.button(dismiss_label, on_click=dialog.close, color=None).props("flat unelevated no-caps").classes(
+                "action-btn is-primary"
+            )
+    await dialog
+
+
+async def open_settings_dialog(state: ManagerState, on_save: Callable[[], Awaitable[None]] | None = None) -> None:
+    """Show the settings dialog; persists on Save and triggers ``on_save``."""
+    settings = state.settings
+    dialog = ui.dialog().props("persistent")
+
+    with dialog, ui.card().classes("min-w-[640px] max-w-[760px]"):
+        ui.label("Settings").classes("dialog-title")
+        ui.label(
+            "Where the manager looks for projects and which tools it uses. Changes are saved to "
+            "~/Library/Application Support/bt-web-report-manager/settings.yaml."
+        ).classes("dialog-subtitle")
+
+        with ui.column().classes("w-full gap-3 mt-2"):
+            ui.label("Project discovery").classes("dialog-section-label")
+            projects_root = (
+                ui.input("Projects root", value=str(settings.projects_root))
+                .props("outlined dense")
+                .classes("w-full")
+                .tooltip("Folder scanned for project directories. Each subfolder may contain 04_Web/ or 04_Web_next/.")
+            )
+            extra_paths = (
+                ui.textarea(
+                    "Extra project paths",
+                    value="\n".join(str(p) for p in settings.extra_project_paths),
+                    placeholder="One project path or project-root path per line",
+                )
+                .props("outlined dense autogrow")
+                .classes("w-full")
+                .tooltip(
+                    "Additional paths to scan. Each line is either a project folder (with project.yaml) or a root."
+                )
+            )
+
+            ui.label("Tools").classes("dialog-section-label")
+            with ui.row().classes("w-full gap-3"):
+                btwr_exe = (
+                    ui.input("btwr executable", value=settings.btwr_executable)
+                    .props("outlined dense")
+                    .classes("flex-1")
+                    .tooltip("Path or name of the bt-web-report CLI binary.")
+                )
+                pnpm_exe = (
+                    ui.input("pnpm executable", value=settings.pnpm_executable)
+                    .props("outlined dense")
+                    .classes("flex-1")
+                    .tooltip("Used for Dev preview (pnpm dev) and Open editor (pnpm dev:editor).")
+                )
+            with ui.row().classes("w-full gap-3"):
+                git_exe = (
+                    ui.input("git executable", value=settings.git_executable)
+                    .props("outlined dense")
+                    .classes("flex-1")
+                    .tooltip("Used to read repo status and run commit/push.")
+                )
+                gh_exe = (
+                    ui.input("gh executable", value=settings.gh_executable)
+                    .props("outlined dense")
+                    .classes("flex-1")
+                    .tooltip("GitHub CLI; used by the New project bootstrap when available.")
+                )
+            editor_cmd = (
+                ui.input("Code editor", value=settings.editor_command)
+                .props("outlined dense")
+                .classes("w-full")
+                .tooltip("Executed by Open code editor, with the project path as its argument (e.g. 'code', 'cursor').")
+            )
+
+            ui.label("GitHub releases").classes("dialog-section-label")
+            with ui.row().classes("w-full gap-3"):
+                gh_owner = (
+                    ui.input("GitHub owner", value=settings.github_owner)
+                    .props("outlined dense")
+                    .classes("flex-1")
+                    .tooltip("Owner of the manager release repo. Defaults to bldgtyp.")
+                )
+                gh_repo = (
+                    ui.input("GitHub repo", value=settings.github_repo)
+                    .props("outlined dense")
+                    .classes("flex-1")
+                    .tooltip("Repo name to poll for manager updates.")
+                )
+
+            ui.label("Locks").classes("dialog-section-label")
+            ttl = (
+                ui.number(
+                    "Lock TTL (hours)",
+                    value=settings.lock_ttl_hours,
+                    min=1,
+                    max=48,
+                    step=1,
+                    format="%d",
+                )
+                .props("outlined dense")
+                .classes("w-[160px]")
+                .tooltip("How long a write lock survives before another user can take over without confirmation.")
+            )
+
+        with ui.row().classes("w-full justify-end items-center gap-2 mt-3"):
+            ui.button("Cancel", on_click=lambda: dialog.submit(False), color=None).props(
+                "flat unelevated no-caps"
+            ).classes("action-btn")
+            ui.button("Save", on_click=lambda: dialog.submit(True), color=None).props(
+                "flat unelevated no-caps"
+            ).classes("action-btn is-warning")
+
+    accepted = await dialog
+    if not accepted:
+        return
+
+    extra = tuple(Path(line.strip()).expanduser() for line in (extra_paths.value or "").splitlines() if line.strip())
+    state.settings = ManagerSettings(
+        projects_root=Path(projects_root.value or "~/Dropbox/bldgtyp").expanduser(),
+        extra_project_paths=extra,
+        btwr_executable=(btwr_exe.value or "btwr").strip(),
+        pnpm_executable=(pnpm_exe.value or "pnpm").strip(),
+        git_executable=(git_exe.value or "git").strip(),
+        gh_executable=(gh_exe.value or "gh").strip(),
+        editor_command=(editor_cmd.value or "code").strip(),
+        github_owner=(gh_owner.value or "bldgtyp").strip(),
+        github_repo=(gh_repo.value or "bt-web-report-manager").strip(),
+        lock_ttl_hours=int(ttl.value or 4),
+    )
+    save_settings(state.settings)
+    if on_save is not None:
+        await on_save()
+
+
+async def open_doctor_dialog(state: ManagerState) -> None:
+    """Run setup checks and display results."""
+    dialog = ui.dialog()
+
+    statuses: list[ToolStatus] = await asyncio.to_thread(doctor, state.settings)
+
+    with dialog, ui.card().classes("min-w-[760px] max-w-[920px]"):
+        ui.label("Doctor").classes("dialog-title")
+        ui.label("Read-only setup checks. Run this after editing Settings to confirm everything resolves.").classes(
+            "dialog-subtitle"
         )
 
+        with ui.column().classes("w-full gap-1 mt-2"):
+            ui.element("div").classes("doctor-grid").style(
+                "display: grid; grid-template-columns: 100px 90px 130px 1fr; "
+                "gap: 6px 12px; font-family: var(--font-mono); font-size: 12px;"
+            )
+            with (
+                ui.row()
+                .classes("w-full px-1 py-2 items-center")
+                .style(
+                    "border-bottom: 1px solid var(--border-strong); font-size: 10px; "
+                    "letter-spacing: 0.08em; text-transform: uppercase; "
+                    "color: var(--text-muted); font-weight: 700;"
+                )
+            ):
+                ui.label("Check").style("flex: 0 0 110px;")
+                ui.label("Status").style("flex: 0 0 90px;")
+                ui.label("Executable").style("flex: 0 0 140px;")
+                ui.label("Path / message").style("flex: 1;")
 
-class DoctorDialog(QDialog):
-    def __init__(self, statuses: list[ToolStatus]) -> None:
-        super().__init__()
-        self.setWindowTitle("Doctor")
-        self.resize(820, 360)
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Local setup checks"))
-        table = QTableWidget(len(statuses), 5)
-        table.setHorizontalHeaderLabels(["Check", "Status", "Executable", "Resolved path", "Message"])
-        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        for row, status in enumerate(statuses):
-            values = [
-                status.name,
-                "OK" if status.ok else "Warning",
-                status.executable,
-                status.path or "-",
-                status.message,
-            ]
-            for column, value in enumerate(values):
-                table.setItem(row, column, QTableWidgetItem(value))
-        table.resizeColumnsToContents()
-        layout.addWidget(table)
+            for status in statuses:
+                chip_class = "chip chip-success" if status.ok else "chip chip-warning"
+                chip_label = "OK" if status.ok else "Warning"
+                with (
+                    ui.row()
+                    .classes("w-full px-1 py-2 items-start")
+                    .style("border-bottom: 1px solid var(--border); font-family: var(--font-mono); font-size: 12px;")
+                ):
+                    ui.label(status.name).style("flex: 0 0 110px; font-weight: 600; color: var(--ink);")
+                    with ui.element("div").style("flex: 0 0 90px;"):
+                        ui.html(f'<span class="{chip_class}">{chip_label}</span>')
+                    ui.label(status.executable).style("flex: 0 0 140px; color: var(--text-2); word-break: break-all;")
+                    with ui.column().classes("gap-1").style("flex: 1; min-width: 0;"):
+                        if status.path:
+                            ui.label(status.path).style("color: var(--text); word-break: break-all;")
+                        ui.label(status.message).style(
+                            "color: var(--text-2); font-family: var(--font-sans); font-size: 12px;"
+                        )
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        with ui.row().classes("w-full justify-end mt-3"):
+            ui.button("Close", on_click=dialog.close, color=None).props("flat unelevated no-caps").classes(
+                "action-btn is-primary"
+            )
 
-
-class NewProjectWizard(QWizard):
-    def __init__(self, settings: ManagerSettings, runner: ProcessRunner) -> None:
-        super().__init__()
-        self.settings = settings
-        self.runner = runner
-        self._plan: NewProjectPlan | None = None
-        self.setWindowTitle("New project")
-        self.resize(820, 620)
-        self.info_page = NewProjectInfoPage(settings)
-        self.preview_page = NewProjectPreviewPage(self)
-        self.build_page = NewProjectBuildPage(self)
-        self.addPage(self.info_page)
-        self.addPage(self.preview_page)
-        self.addPage(self.build_page)
-
-    def validateCurrentPage(self) -> bool:
-        if self.currentPage() is self.info_page:
-            try:
-                self._plan = self.info_page.plan()
-            except ValueError as exc:
-                QMessageBox.warning(self, "New project validation", str(exc))
-                return False
-        return super().validateCurrentPage()
-
-    def plan(self) -> NewProjectPlan | None:
-        return self._plan
-
-
-class NewProjectInfoPage(QWizardPage):
-    def __init__(self, settings: ManagerSettings) -> None:
-        super().__init__()
-        self.settings = settings
-        self.setTitle("Project info")
-
-        layout = QVBoxLayout(self)
-        form = QFormLayout()
-        self.project_title = QLineEdit()
-        self.slug = QLineEdit()
-        self.client_name = QLineEdit()
-        self.building_name = QLineEdit()
-        self.phase = QLineEdit("Design Analysis")
-        self.local_folder = QLineEdit(str(settings.projects_root / "Project Name"))
-        self.target_web_path = QLineEdit(str(settings.projects_root / "Project Name" / "04_Web"))
-        self.phpp_path = QLineEdit()
-        self.phpp_path.setPlaceholderText("Optional absolute path to .xlsx or .xlsm")
-        self.repo_name = QLineEdit()
-        self.production_url = QLineEdit()
-
-        self.slug.textChanged.connect(self._sync_defaults)
-        self.local_folder.textChanged.connect(self._sync_target_path)
-
-        form.addRow("Project title", self.project_title)
-        form.addRow("Slug", self.slug)
-        form.addRow("Client", self.client_name)
-        form.addRow("Building", self.building_name)
-        form.addRow("Phase", self.phase)
-        form.addRow("Local folder", self.local_folder)
-        form.addRow("Target 04_Web path", self.target_web_path)
-        form.addRow("PHPP workbook", self.phpp_path)
-        form.addRow("Repo name", self.repo_name)
-        form.addRow("Production URL", self.production_url)
-        layout.addLayout(form)
-
-    def plan(self) -> NewProjectPlan:
-        phpp_text = self.phpp_path.text().strip()
-        return build_new_project_plan(
-            project_title=self.project_title.text(),
-            slug=self.slug.text(),
-            client_name=self.client_name.text(),
-            building_name=self.building_name.text(),
-            phase=self.phase.text(),
-            local_folder=Path(self.local_folder.text()),
-            target_web_path=Path(self.target_web_path.text()),
-            phpp_path=Path(phpp_text) if phpp_text else None,
-            repo_name=self.repo_name.text(),
-            production_url=self.production_url.text(),
-        )
-
-    def _sync_defaults(self, value: str) -> None:
-        if not self.repo_name.text().strip() or self.repo_name.text().startswith("bt-proj-"):
-            self.repo_name.setText(f"bt-proj-{value}" if value else "")
-        if not self.production_url.text().strip() or self.production_url.text().endswith(".bldgtyp.com"):
-            self.production_url.setText(f"https://{value}.bldgtyp.com" if value else "")
-
-    def _sync_target_path(self, value: str) -> None:
-        if self.target_web_path.text().strip().endswith("/04_Web"):
-            self.target_web_path.setText(str(Path(value).expanduser() / "04_Web"))
-
-
-class NewProjectPreviewPage(QWizardPage):
-    def __init__(self, wizard: NewProjectWizard) -> None:
-        super().__init__()
-        self._wizard = wizard
-        self.setTitle("Confirmation preview")
-        layout = QVBoxLayout(self)
-        self.preview = QTextEdit()
-        self.preview.setReadOnly(True)
-        layout.addWidget(self.preview)
-
-    def initializePage(self) -> None:
-        plan = self._wizard.plan()
-        if plan is None:
-            self.preview.setPlainText("No valid project creation plan is available.")
-            return
-        self.preview.setPlainText("\n".join(plan.summary_lines()))
-
-
-class NewProjectBuildPage(QWizardPage):
-    def __init__(self, wizard: NewProjectWizard) -> None:
-        super().__init__()
-        self._wizard = wizard
-        self.setTitle("Build / log")
-        layout = QVBoxLayout(self)
-        self.log = QTextEdit()
-        self.log.setReadOnly(True)
-        layout.addWidget(self.log)
-
-    def initializePage(self) -> None:
-        plan = self._wizard.plan()
-        if plan is None:
-            self.log.setPlainText("No valid project creation plan is available.")
-            return
-        lines = ["Validated project creation plan:", "", *plan.summary_lines(), ""]
-        if bootstrap_command_available(self._wizard.settings):
-            spec = bootstrap_command(plan, self._wizard.settings)
-            lines.extend(["Running bootstrap command:", "$ " + " ".join(spec.args)])
-            self.log.setPlainText("\n".join(lines))
-            self._wizard.runner.start(spec)
-        else:
-            lines.extend(plan.manual_checklist())
-            self.log.setPlainText("\n".join(lines))
+    await dialog
