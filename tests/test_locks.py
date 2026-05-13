@@ -36,6 +36,17 @@ def test_malformed_lock_is_reported(tmp_path: Path) -> None:
 
     assert loaded is not None
     assert loaded.malformed
+    assert lock_requires_confirmation(loaded)
+
+
+def test_current_user_lock_does_not_require_confirmation(tmp_path: Path) -> None:
+    project = tmp_path / "04_Web"
+    project.mkdir()
+    now = datetime(2026, 5, 13, 12, 0, tzinfo=timezone.utc)
+
+    lock = write_lock(project, "project", ttl_hours=4, now=now)
+
+    assert not lock_requires_confirmation(lock, now=now + timedelta(minutes=1))
 
 
 def test_lock_requires_confirmation_for_other_unexpired_lock(tmp_path: Path) -> None:

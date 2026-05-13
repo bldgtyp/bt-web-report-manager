@@ -36,9 +36,11 @@ from bt_web_report_manager.commands import (
     scrape_command,
 )
 from bt_web_report_manager.locks import (
+    is_current_user_lock,
     lock_requires_confirmation,
     lock_warning_message,
     read_lock,
+    refresh_lock,
     release_lock,
     write_lock,
 )
@@ -49,6 +51,8 @@ from bt_web_report_manager.ui.command_runner import ProcessRunner
 from bt_web_report_manager.ui.dialogs import DoctorDialog, SettingsDialog
 from bt_web_report_manager.ui.update_worker import UpdateWorker, coerce_update_result
 
+LOCK_REFRESH_INTERVAL_MS = 60_000
+
 
 class MainWindow(QMainWindow):
     def __init__(self, settings: ManagerSettings, projects: Sequence[ProjectStatus]) -> None:
@@ -58,6 +62,9 @@ class MainWindow(QMainWindow):
         self._owned_lock_paths: set[Path] = set()
         self._update_thread: QThread | None = None
         self._update_worker: UpdateWorker | None = None
+        self._lock_refresh_timer = QTimer(self)
+        self._lock_refresh_timer.setInterval(LOCK_REFRESH_INTERVAL_MS)
+        self._lock_refresh_timer.timeout.connect(self._refresh_owned_locks)
         self.runner = ProcessRunner()
         self.runner.started.connect(self._command_started)
         self.runner.output.connect(self._append_log)
@@ -67,6 +74,7 @@ class MainWindow(QMainWindow):
         self._build_toolbar()
         self._build_content()
         self._render_projects()
+        self._lock_refresh_timer.start()
         QTimer.singleShot(250, self.check_updates)
 
     def _build_toolbar(self) -> None:
@@ -145,10 +153,9 @@ class MainWindow(QMainWindow):
         self._set_action_enabled(False)
 
     def refresh_projects(self) -> None:
-        self.projects = discover_projects(self.settings)
-        self._render_projects()
+        self._refresh_projects_preserving_selection()
 
-    def _render_projects(self) -> None:
+    def _render_projects(self, selected_path: Path | None = None) -> None:
         self.table.setRowCount(len(self.projects))
         dirty = sum(1 for project in self.projects if project.git.dirty_count)
         needs_scrape = sum(1 for project in self.projects if project.needs_scrape)
@@ -168,13 +175,28 @@ class MainWindow(QMainWindow):
             for column, value in enumerate(values):
                 self.table.setItem(row, column, QTableWidgetItem(value))
         if self.projects:
-            self.table.selectRow(0)
+            selected_row = 0
+            if selected_path is not None:
+                for row, project in enumerate(self.projects):
+                    if project.project_path == selected_path:
+                        selected_row = row
+                        break
+            self.table.selectRow(selected_row)
+            self._render_selected_project()
         else:
             self.detail_title.setText("No projects discovered")
             self.detail.setPlainText(
                 "No project.yaml files were found under the configured projects root or extra project paths."
             )
             self._set_action_enabled(False)
+
+    def _refresh_projects_preserving_selection(self, selected_path: Path | None = None) -> None:
+        selected = selected_path
+        if selected is None:
+            project = self._selected_project()
+            selected = project.project_path if project is not None else None
+        self.projects = discover_projects(self.settings)
+        self._render_projects(selected)
 
     def open_settings(self) -> None:
         dialog = SettingsDialog(self.settings)
@@ -183,7 +205,7 @@ class MainWindow(QMainWindow):
         self.settings = dialog.settings()
         save_settings(self.settings)
         self.refresh_projects()
-        self.log.append("Settings saved and project list refreshed.")
+        self._append_log("Settings saved and project list refreshed.")
 
     def open_doctor(self) -> None:
         dialog = DoctorDialog(doctor(self.settings))
@@ -191,9 +213,9 @@ class MainWindow(QMainWindow):
 
     def check_updates(self) -> None:
         if self._update_thread is not None:
-            self.log.append("Update check already running.")
+            self._append_log("Update check already running.")
             return
-        self.log.append("Checking GitHub Releases for manager updates...")
+        self._append_log("Checking GitHub Releases for manager updates...")
         thread = QThread(self)
         worker = UpdateWorker(self.settings)
         worker.moveToThread(thread)
@@ -230,7 +252,7 @@ class MainWindow(QMainWindow):
     def run_commit_push(self) -> None:
         project = self._selected_project()
         if project is None or not project.git.is_repo or project.git.dirty_count == 0:
-            self.log.append("Commit & push requires a dirty git worktree.")
+            self._append_log("Commit & push requires a dirty git worktree.")
             return
         message, accepted = QInputDialog.getText(
             self,
@@ -239,7 +261,7 @@ class MainWindow(QMainWindow):
             text=_suggest_commit_message(project),
         )
         if not accepted or not message.strip():
-            self.log.append("Commit & push canceled before commit message confirmation.")
+            self._append_log("Commit & push canceled before commit message confirmation.")
             return
         response = QMessageBox.question(
             self,
@@ -252,7 +274,7 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.No,
         )
         if response != QMessageBox.StandardButton.Yes:
-            self.log.append("Commit & push canceled before running git.")
+            self._append_log("Commit & push canceled before running git.")
             return
         if self._prepare_mutating_action(project):
             self._run_command(commit_push_command(project, self.settings, message.strip()))
@@ -309,21 +331,26 @@ class MainWindow(QMainWindow):
         self.stop_button.setEnabled(running)
 
     def _command_started(self, line: str) -> None:
-        self.log.append(line)
+        self._append_log(line)
         self._set_action_enabled(self._selected_project() is not None)
 
     def _append_log(self, text: str) -> None:
-        self.log.append(text)
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        for line in text.splitlines() or [""]:
+            self.log.append(f"[{timestamp}] {line}")
 
-    def _command_finished(self, name: str, exit_code: int, refresh_on_success: bool) -> None:
-        self.log.append(f"{name} finished with exit code {exit_code}.")
-        if exit_code == 0 and refresh_on_success:
+    def _command_finished(self, name: str, exit_code: int, refresh_on_success: bool, canceled: bool) -> None:
+        if canceled:
+            self._append_log(f"{name} stopped by user.")
+        else:
+            self._append_log(f"{name} finished with exit code {exit_code}.")
+        if not canceled and exit_code == 0 and refresh_on_success:
             self.refresh_projects()
         self._set_action_enabled(self._selected_project() is not None)
 
     def _update_finished(self, value: object) -> None:
         result = coerce_update_result(value)
-        self.log.append(result.message)
+        self._append_log(result.message)
         if result.ok and result.release is not None and result.release.is_update:
             QMessageBox.information(
                 self,
@@ -347,18 +374,36 @@ class MainWindow(QMainWindow):
                 QMessageBox.StandardButton.No,
             )
             if response != QMessageBox.StandardButton.Yes:
-                self.log.append("Action canceled because the project is locked.")
+                self._append_log("Action canceled because the project is locked.")
                 return False
         write_lock(project.project_path, project.metadata.slug, self.settings.lock_ttl_hours)
         self._owned_lock_paths.add(project.project_path)
-        self.log.append(f"Lock refreshed for {project.metadata.slug}.")
+        self._append_log(f"Lock refreshed for {project.metadata.slug}.")
+        self._refresh_projects_preserving_selection(project.project_path)
         return True
 
-    def closeEvent(self, event: QCloseEvent) -> None:
-        for project_path in self._owned_lock_paths:
+    def _refresh_owned_locks(self) -> None:
+        refreshed_any = False
+        for project_path in tuple(self._owned_lock_paths):
             lock = read_lock(project_path)
-            if lock is not None and not lock.malformed and not lock_requires_confirmation(lock):
+            if lock is None:
+                self._owned_lock_paths.discard(project_path)
+                continue
+            if lock.malformed or not is_current_user_lock(lock):
+                continue
+            refresh_lock(project_path, self.settings.lock_ttl_hours)
+            refreshed_any = True
+        if refreshed_any:
+            self._refresh_projects_preserving_selection()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        self._lock_refresh_timer.stop()
+        self.runner.shutdown()
+        for project_path in tuple(self._owned_lock_paths):
+            lock = read_lock(project_path)
+            if lock is not None and not lock.malformed and is_current_user_lock(lock):
                 release_lock(project_path)
+                self._owned_lock_paths.discard(project_path)
         event.accept()
 
 

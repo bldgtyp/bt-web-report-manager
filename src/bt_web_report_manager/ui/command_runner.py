@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import QObject, QProcess, Signal
+from PySide6.QtCore import QObject, QProcess, QTimer, Signal
 
 from bt_web_report_manager.commands import CommandSpec
 
@@ -12,12 +12,13 @@ from bt_web_report_manager.commands import CommandSpec
 class ProcessRunner(QObject):
     started = Signal(str)
     output = Signal(str)
-    finished = Signal(str, int, bool)
+    finished = Signal(str, int, bool, bool)
 
     def __init__(self) -> None:
         super().__init__()
         self._process: QProcess | None = None
         self._spec: CommandSpec | None = None
+        self._stop_requested = False
 
     @property
     def is_running(self) -> bool:
@@ -43,6 +44,7 @@ class ProcessRunner(QObject):
         process.finished.connect(self._finished)
         self._process = process
         self._spec = spec
+        self._stop_requested = False
         self.started.emit(f"$ {' '.join(spec.args)}")
         process.start()
         return True
@@ -50,10 +52,21 @@ class ProcessRunner(QObject):
     def stop(self) -> None:
         if self._process is None:
             return
+        if self._stop_requested:
+            return
+        self._stop_requested = True
         self.output.emit("Stopping process...")
+        self._process.terminate()
+        QTimer.singleShot(2000, self._kill_if_running)
+
+    def shutdown(self) -> None:
+        if self._process is None:
+            return
+        self._stop_requested = True
         self._process.terminate()
         if not self._process.waitForFinished(2000):
             self._process.kill()
+            self._process.waitForFinished(1000)
 
     def _read_stdout(self) -> None:
         if self._process is None:
@@ -75,18 +88,26 @@ class ProcessRunner(QObject):
         spec = self._spec
         name = spec.name if spec is not None else "Command"
         refresh = spec.refresh_on_success if spec is not None else False
-        self.finished.emit(name, exit_code, refresh)
+        canceled = self._stop_requested
+        self.finished.emit(name, exit_code, refresh, canceled)
         self._process = None
         self._spec = None
+        self._stop_requested = False
 
     def _error(self, error: QProcess.ProcessError) -> None:
         spec = self._spec
         name = spec.name if spec is not None else "Command"
         message = self._process.errorString() if self._process is not None else str(error)
         self.output.emit(message)
-        self.finished.emit(name, -1, False)
+        self.finished.emit(name, -1, False, self._stop_requested)
         self._process = None
         self._spec = None
+        self._stop_requested = False
+
+    def _kill_if_running(self) -> None:
+        if self._process is not None and self._stop_requested:
+            self.output.emit("Process did not stop after 2 seconds; killing it.")
+            self._process.kill()
 
 
 def _decode_qbytearray(value: Any) -> str:
