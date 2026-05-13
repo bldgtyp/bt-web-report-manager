@@ -1,9 +1,11 @@
 """btwr-manager entry point."""
 
+from bt_web_report_manager.app import run
 
-def main() -> None:
-    print("bt-web-report-manager — Phase 5 scaffolding placeholder.")
+
+def main() -> int:
+    return run()
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
