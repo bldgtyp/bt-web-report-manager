@@ -1,17 +1,19 @@
 # bt-web-report-manager
 
-PySide6 macOS GUI that wraps the `btwr` CLI. Shipped as a DMG via
-GitHub Releases with auto-update on launch.
+NiceGUI desktop dashboard that wraps the `btwr` CLI. Renders in a browser
+tab (or a native pywebview window) and shells out to `btwr`, `pnpm`, `git`,
+`gh`, and the configured code editor — every project action ultimately maps
+to a subprocess so the manager stays a thin coordinator over Dropbox-synced
+project folders.
 
 **Standalone venv** — this package is intentionally NOT a member of the
 parent uv workspace. It shells out to `btwr` as a subprocess (it never
-`import`s from `bt-web-report-cli` or `bt-web-report-schemas`), and its
-PySide6 + briefcase toolchain is heavy enough that mixing into the CLI's
-venv would be unpleasant.
+`import`s from `bt-web-report-cli` or `bt-web-report-schemas`), so keeping
+its NiceGUI + PyInstaller toolchain separate avoids polluting the CLI's
+dependency surface.
 
-The manager is pinned to Python `>=3.11,<3.14` because Briefcase packaging
-depends on PySide6 wheels that are not available for the Briefcase Python 3.14
-support package yet.
+The manager is pinned to Python `>=3.11,<3.14` because NiceGUI + PyInstaller
+wheels are best supported in that range today.
 
 ## Dev quickstart
 
@@ -20,6 +22,21 @@ cd bt-web-report-manager
 uv sync --extra dev
 uv run btwr-manager
 ```
+
+The server starts on `http://localhost:8765` by default and opens a browser
+tab. To open a native pywebview window instead, set the env var:
+
+```bash
+BTWR_MANAGER_NATIVE=1 uv run btwr-manager
+```
+
+Useful env vars:
+
+| Var                          | Purpose                                          |
+|------------------------------|--------------------------------------------------|
+| `BTWR_MANAGER_PORT`          | Override the default port (8765)                 |
+| `BTWR_MANAGER_NATIVE=1`      | Open in a pywebview window instead of a tab      |
+| `BTWR_MANAGER_APP_SUPPORT`   | Override `~/Library/Application Support/...` for tests |
 
 ## Checks
 
@@ -31,50 +48,74 @@ uv run mypy src tests
 
 ## Packaging
 
-Briefcase packaging is configured in `pyproject.toml`. Use the `package` extra
-only when building distributable artifacts:
+The new packaging story is **PyInstaller via `nicegui-pack`** (Briefcase
+was removed during the NiceGUI port). The build script handles dep sync,
+packing, and ad-hoc codesigning so Gatekeeper lets the bundle open locally:
 
 ```bash
 uv sync --extra dev --extra package
-uv run --extra package briefcase create macOS app
-uv run --extra package briefcase build macOS app
-uv run --extra package briefcase package macOS app -p dmg
+./scripts/build-app.sh
 ```
 
-The signed/notarized release path is intentionally manual until Apple Developer
-credentials are confirmed. See `docs/release-checklist.md`.
+This produces `dist/bt-web-report Manager.app`. Bundle size is ~110 MB
+(versus ~500 MB for the previous Qt + Briefcase build).
+
+For a signed release build, set `CODESIGN_IDENTITY` to your Developer ID
+identity (e.g. `"Developer ID Application: BLDGTYP, LLC (TEAMID)"`). See
+`docs/release-checklist.md` (TODO: refresh for nicegui-pack).
 
 The app reads settings from
-`~/Library/Application Support/bt-web-report-manager/settings.yaml`.
-For tests or local experiments, set `BTWR_MANAGER_APP_SUPPORT` to point at a
+`~/Library/Application Support/bt-web-report-manager/settings.yaml`. For
+tests or local experiments, set `BTWR_MANAGER_APP_SUPPORT` to point at a
 temporary folder.
+
+## What the manager does
+
+- **Toolbar**: New project (wizard), Refresh, Settings, Doctor, Check
+  updates. Keyboard shortcuts: ⌘N, ⌘R, ⌘,.
+- **Projects table** (left pane): name, slug, client/building, phase, PHPP
+  mtime, manifest mtime, git state, lock owner, deploy state, status chips.
+- **Detail pane** (right pane, top): metadata + state kv-grid and per-
+  project status explanations.
+- **Action cluster**: grouped Run / Author / Publish / Process.
+  - **Scrape**: `btwr scrape <project>` — writes a Dropbox lock first
+  - **Dev preview**: `pnpm dev` — long-running, writes a lock
+  - **Open editor (TinaCMS)**: `pnpm dev:editor` — long-running, writes a
+    lock; disabled when `package.json` lacks the `dev:editor` script
+  - **Open code editor**: launches the configured editor at the project
+    path (e.g. `code`)
+  - **Commit & push**: prompts for a message, confirms, then
+    `git add -A && git commit -m … && git push`
+  - **Reveal in Finder**: `open -R <project>`
+  - **Stop**: aborts the running subprocess (SIGTERM, then SIGKILL after 2s)
+  - **Copy log**: copies the action log to the clipboard
+- **Action log** (right pane, bottom): timestamped stdout/stderr stream
+  from the current subprocess.
+- **Lock handling**: mutating actions (Scrape, Dev preview, Open editor,
+  Commit & push) write a Dropbox-synced soft-lock to
+  `<project>/.bldgtyp/lock.yaml` with the configured TTL. The manager
+  refreshes its own locks every 60 s and releases them on quit. When
+  another user/host holds an active lock, the action prompts for
+  confirmation before overwriting it.
+- **Update check**: polls `bldgtyp/bt-web-report-manager` GitHub releases
+  on startup (250 ms after page load) and via the toolbar; an
+  `Update available` dialog offers buttons to open the release page or
+  download the asset.
 
 ## Current command contract
 
-Phase 5 wraps the existing platform tools instead of importing their
-implementation. The CLI already supports the required scrape contract:
-
-```bash
+```
 btwr scrape <project_path>
+pnpm dev                       (cwd: project_path)
+pnpm dev:editor                (cwd: project_path)
+git add -A -- . ':!.bldgtyp/lock.yaml' && git commit -m <msg> && git push
+git status --branch --porcelain=v2
 ```
 
-The manager also expects `pnpm`, `git`, `gh`, and the configured editor command
-to be available, but missing tools should appear as setup warnings rather than
-crashing the GUI.
+`gh` is invoked only by the New-project wizard's optional bootstrap path
+when `btwr new --help` is available. The default `btwr` lookup is plain
+`btwr` on `PATH`; use Settings to point at a different executable when
+testing locally.
 
-The default `btwr` lookup is intentionally plain `btwr` on `PATH`. In local
-workspace development, use Settings to point the manager at the installed CLI
-entry point once the CLI package is installed into an environment visible to the
-app.
-
-The Scrape, Dev preview, Reveal, Open editor, and Commit & push buttons run
-through a Qt process runner and stream output into the action log. Scrape, Dev
-preview, and Commit & push write/refresh a Dropbox soft lock before running.
-Commit & push only enables for dirty git worktrees and requires a commit message
-plus a second confirmation before running `git add -A`, `git commit`, and
-`git push`.
-
-On launch, the manager checks GitHub Releases for
-`bldgtyp/bt-web-report-manager` in a background thread. Failures are non-blocking
-warnings in the action log; newer releases show an update dialog with the release
-URL.
+Missing tools surface as warnings in the action log and as Doctor
+findings rather than crashing the GUI.
