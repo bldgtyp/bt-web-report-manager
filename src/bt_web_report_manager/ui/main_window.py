@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
@@ -33,6 +34,7 @@ from bt_web_report_manager.commands import (
     commit_push_command,
     dev_preview_command,
     doctor,
+    open_code_editor_command,
     open_editor_command,
     reveal_command,
     scrape_command,
@@ -147,6 +149,9 @@ class MainWindow(QMainWindow):
         self.editor_button = QPushButton("Open editor")
         self.editor_button.clicked.connect(self.run_open_editor)
         buttons.addWidget(self.editor_button)
+        self.code_editor_button = QPushButton("Open code editor")
+        self.code_editor_button.clicked.connect(self.run_open_code_editor)
+        buttons.addWidget(self.code_editor_button)
         self.stop_button = QPushButton("Stop")
         self.stop_button.clicked.connect(self.runner.stop)
         buttons.addWidget(self.stop_button)
@@ -277,8 +282,13 @@ class MainWindow(QMainWindow):
 
     def run_open_editor(self) -> None:
         project = self._selected_project()
-        if project is not None:
+        if project is not None and self._prepare_mutating_action(project):
             self._run_command(open_editor_command(project, self.settings))
+
+    def run_open_code_editor(self) -> None:
+        project = self._selected_project()
+        if project is not None:
+            self._run_command(open_code_editor_command(project, self.settings))
 
     def copy_log(self) -> None:
         QApplication.clipboard().setText(self.log.toPlainText())
@@ -364,7 +374,8 @@ class MainWindow(QMainWindow):
             self.scrape_button: _scrape_disabled_reason(project, running, enabled),
             self.dev_button: _selected_disabled_reason(project, running, enabled),
             self.reveal_button: _selected_disabled_reason(project, running, enabled),
-            self.editor_button: _selected_disabled_reason(project, running, enabled),
+            self.editor_button: _open_editor_disabled_reason(project, running, enabled),
+            self.code_editor_button: _selected_disabled_reason(project, running, enabled),
             self.commit_button: _commit_disabled_reason(project, running, enabled),
         }
         for button, reason in button_states.items():
@@ -553,7 +564,8 @@ def _action_explanations(project: ProjectStatus, running: bool) -> list[str]:
         "Scrape": _scrape_disabled_reason(project, running, True),
         "Dev preview": _selected_disabled_reason(project, running, True),
         "Reveal": _selected_disabled_reason(project, running, True),
-        "Open editor": _selected_disabled_reason(project, running, True),
+        "Open editor": _open_editor_disabled_reason(project, running, True),
+        "Open code editor": _selected_disabled_reason(project, running, True),
         "Commit & push": _commit_disabled_reason(project, running, True),
     }
     return [
@@ -567,6 +579,23 @@ def _selected_disabled_reason(project: ProjectStatus | None, running: bool, enab
         return "Disabled: no project selected."
     if running:
         return "Disabled: another command is running."
+    return None
+
+
+def _open_editor_disabled_reason(project: ProjectStatus | None, running: bool, enabled: bool) -> str | None:
+    reason = _selected_disabled_reason(project, running, enabled)
+    if reason is not None:
+        return reason
+    assert project is not None
+    package_path = project.project_path / "package.json"
+    if not package_path.exists():
+        return "Disabled: package.json is missing."
+    try:
+        package_json = json.loads(package_path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        return f"Disabled: package.json is unreadable ({exc})."
+    if not isinstance(package_json.get("scripts"), dict) or "dev:editor" not in package_json["scripts"]:
+        return "Disabled: package.json does not define dev:editor."
     return None
 
 

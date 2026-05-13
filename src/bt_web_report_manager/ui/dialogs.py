@@ -59,7 +59,7 @@ class SettingsDialog(QDialog):
         form.addRow("pnpm", self.pnpm_executable)
         form.addRow("git", self.git_executable)
         form.addRow("gh", self.gh_executable)
-        form.addRow("Editor", self.editor_command)
+        form.addRow("Code editor", self.editor_command)
         form.addRow("GitHub owner", self.github_owner)
         form.addRow("GitHub repo", self.github_repo)
         form.addRow("Lock TTL hours", self.lock_ttl_hours)

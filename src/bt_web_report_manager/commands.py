@@ -91,6 +91,16 @@ def reveal_command(project: ProjectStatus) -> CommandSpec:
 def open_editor_command(project: ProjectStatus, settings: ManagerSettings) -> CommandSpec:
     return CommandSpec(
         name="Open editor",
+        args=(settings.pnpm_executable, "dev:editor"),
+        cwd=project.project_path,
+        long_running=True,
+        refresh_on_success=False,
+    )
+
+
+def open_code_editor_command(project: ProjectStatus, settings: ManagerSettings) -> CommandSpec:
+    return CommandSpec(
+        name="Open code editor",
         args=(settings.editor_command, str(project.project_path)),
         refresh_on_success=False,
     )

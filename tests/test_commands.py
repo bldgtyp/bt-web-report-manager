@@ -3,6 +3,7 @@ from pathlib import Path
 from bt_web_report_manager.commands import (
     commit_push_command,
     dev_preview_command,
+    open_code_editor_command,
     open_editor_command,
     run_command,
     scrape_command,
@@ -31,7 +32,10 @@ def test_action_command_specs(tmp_path: Path) -> None:
     assert scrape_command(project, settings).refresh_on_success
     assert dev_preview_command(project, settings).args == ("pnpm-dev", "dev")
     assert dev_preview_command(project, settings).long_running
-    assert open_editor_command(project, settings).args == ("code-dev", str(tmp_path))
+    assert open_editor_command(project, settings).args == ("pnpm-dev", "dev:editor")
+    assert open_editor_command(project, settings).cwd == tmp_path
+    assert open_editor_command(project, settings).long_running
+    assert open_code_editor_command(project, settings).args == ("code-dev", str(tmp_path))
     commit = commit_push_command(project, settings, "Update report")
     assert commit.args[0:2] == ("/bin/sh", "-lc")
     assert "git add -A -- . ':!.bldgtyp/lock.yaml'" in commit.args[2]
