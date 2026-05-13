@@ -9,6 +9,7 @@ from pathlib import Path
 from PySide6.QtCore import QThread, QTimer, Qt
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
+    QApplication,
     QHBoxLayout,
     QDialog,
     QHeaderView,
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSplitter,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -98,14 +100,21 @@ class MainWindow(QMainWindow):
         self.addToolBar(toolbar)
 
     def _build_content(self) -> None:
+        tabs = QTabWidget()
+        tabs.addTab(self._build_status_tab(), "Status")
+        self.setCentralWidget(tabs)
+
+    def _build_status_tab(self) -> QWidget:
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
         left = QWidget()
         left_layout = QVBoxLayout(left)
         self.summary = QLabel()
         left_layout.addWidget(self.summary)
-        self.table = QTableWidget(0, 8)
-        self.table.setHorizontalHeaderLabels(["Name", "Slug", "Client", "Phase", "PHPP", "Data", "Git", "Badges"])
+        self.table = QTableWidget(0, 10)
+        self.table.setHorizontalHeaderLabels(
+            ["Name", "Slug", "Client / Building", "Phase", "PHPP", "Data", "Git", "Lock", "Deploy", "Badges"]
+        )
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -137,6 +146,9 @@ class MainWindow(QMainWindow):
         self.stop_button = QPushButton("Stop")
         self.stop_button.clicked.connect(self.runner.stop)
         buttons.addWidget(self.stop_button)
+        self.copy_log_button = QPushButton("Copy log")
+        self.copy_log_button.clicked.connect(self.copy_log)
+        buttons.addWidget(self.copy_log_button)
         right_layout.addLayout(buttons)
         self.detail = QTextEdit()
         self.detail.setReadOnly(True)
@@ -149,8 +161,8 @@ class MainWindow(QMainWindow):
         splitter.addWidget(left)
         splitter.addWidget(right)
         splitter.setSizes([760, 420])
-        self.setCentralWidget(splitter)
         self._set_action_enabled(False)
+        return splitter
 
     def refresh_projects(self) -> None:
         self._refresh_projects_preserving_selection()
@@ -159,21 +171,31 @@ class MainWindow(QMainWindow):
         self.table.setRowCount(len(self.projects))
         dirty = sum(1 for project in self.projects if project.git.dirty_count)
         needs_scrape = sum(1 for project in self.projects if project.needs_scrape)
+        deploy_unknown = len(self.projects)
         self.root_label.setText(f"Projects root: {self.settings.projects_root}")
-        self.summary.setText(f"{len(self.projects)} projects | {dirty} dirty | {needs_scrape} need scrape")
+        self.summary.setText(
+            f"{len(self.projects)} projects | {dirty} dirty | {needs_scrape} need scrape | "
+            f"{deploy_unknown} deploy status unknown"
+        )
         for row, project in enumerate(self.projects):
             values = [
                 project.metadata.project_title,
                 project.metadata.slug,
-                project.metadata.client_name or "-",
+                _client_building_label(project),
                 project.metadata.phase or "-",
                 _format_dt(project.phpp_modified_at),
                 _format_dt(project.manifest_generated_at),
                 _git_label(project),
+                _lock_table_label(project),
+                "Unknown",
                 ", ".join(project.badges),
             ]
+            tooltip = "\n".join(_status_explanations(project))
             for column, value in enumerate(values):
-                self.table.setItem(row, column, QTableWidgetItem(value))
+                item = QTableWidgetItem(value)
+                if tooltip:
+                    item.setToolTip(tooltip)
+                self.table.setItem(row, column, item)
         if self.projects:
             selected_row = 0
             if selected_path is not None:
@@ -249,6 +271,10 @@ class MainWindow(QMainWindow):
         if project is not None:
             self._run_command(open_editor_command(project, self.settings))
 
+    def copy_log(self) -> None:
+        QApplication.clipboard().setText(self.log.toPlainText())
+        self._append_log("Action log copied to clipboard.")
+
     def run_commit_push(self) -> None:
         project = self._selected_project()
         if project is None or not project.git.is_repo or project.git.dirty_count == 0:
@@ -302,6 +328,13 @@ class MainWindow(QMainWindow):
             f"Last commit: {project.git.last_commit or '-'}",
             f"Lock: {_lock_label(project)}",
             f"Badges: {', '.join(project.badges)}",
+            "Deploy: unknown (Cloudflare Pages polling is not wired in v1 yet)",
+            "",
+            "Status:",
+            *_status_explanations(project),
+            "",
+            "Actions:",
+            *_action_explanations(project, self.runner.is_running),
         ]
         if project.warnings:
             lines.append("")
@@ -317,18 +350,20 @@ class MainWindow(QMainWindow):
 
     def _set_action_enabled(self, enabled: bool) -> None:
         running = self.runner.is_running
-        for button in (
-            self.scrape_button,
-            self.dev_button,
-            self.reveal_button,
-            self.editor_button,
-        ):
-            button.setEnabled(enabled and not running)
         project = self._selected_project()
-        self.commit_button.setEnabled(
-            enabled and not running and project is not None and project.git.is_repo and project.git.dirty_count > 0
-        )
+        button_states = {
+            self.scrape_button: _scrape_disabled_reason(project, running, enabled),
+            self.dev_button: _selected_disabled_reason(project, running, enabled),
+            self.reveal_button: _selected_disabled_reason(project, running, enabled),
+            self.editor_button: _selected_disabled_reason(project, running, enabled),
+            self.commit_button: _commit_disabled_reason(project, running, enabled),
+        }
+        for button, reason in button_states.items():
+            button.setEnabled(reason is None)
+            button.setToolTip(reason or "")
         self.stop_button.setEnabled(running)
+        self.stop_button.setToolTip("" if running else "Disabled: no command is running.")
+        self.copy_log_button.setEnabled(bool(self.log.toPlainText()))
 
     def _command_started(self, line: str) -> None:
         self._append_log(line)
@@ -338,6 +373,8 @@ class MainWindow(QMainWindow):
         timestamp = datetime.now().strftime("%H:%M:%S")
         for line in text.splitlines() or [""]:
             self.log.append(f"[{timestamp}] {line}")
+        if hasattr(self, "copy_log_button"):
+            self.copy_log_button.setEnabled(bool(self.log.toPlainText()))
 
     def _command_finished(self, name: str, exit_code: int, refresh_on_success: bool, canceled: bool) -> None:
         if canceled:
@@ -417,9 +454,15 @@ def _git_label(project: ProjectStatus) -> str:
     if not project.git.is_repo:
         return "No git"
     branch = project.git.branch or "detached"
+    sync: list[str] = []
+    if project.git.ahead:
+        sync.append(f"{project.git.ahead} ahead")
+    if project.git.behind:
+        sync.append(f"{project.git.behind} behind")
+    sync_text = f" ({', '.join(sync)})" if sync else ""
     if project.git.dirty_count:
-        return f"{branch}, {project.git.dirty_count} dirty"
-    return f"{branch}, clean"
+        return f"{branch}, {project.git.dirty_count} dirty{sync_text}"
+    return f"{branch}, clean{sync_text}"
 
 
 def _lock_label(project: ProjectStatus) -> str:
@@ -432,6 +475,95 @@ def _lock_label(project: ProjectStatus) -> str:
     host = lock.host or "unknown host"
     expiry = _format_dt(lock.expires_at)
     return f"{owner} on {host}, expires {expiry}"
+
+
+def _lock_table_label(project: ProjectStatus) -> str:
+    lock = project.lock
+    if lock is None:
+        return "-"
+    if lock.malformed:
+        return "Malformed"
+    if lock.user is None:
+        return "Unknown owner"
+    return lock.user
+
+
+def _client_building_label(project: ProjectStatus) -> str:
+    values = [value for value in (project.metadata.client_name, project.metadata.building_name) if value]
+    return " / ".join(values) if values else "-"
+
+
+def _status_explanations(project: ProjectStatus) -> list[str]:
+    lines: list[str] = []
+    if project.manifest_path is None:
+        lines.append("- No data manifest exists yet; run Scrape after the PHPP path is configured.")
+    elif project.needs_scrape:
+        lines.append("- PHPP is newer than the data manifest; run Scrape before previewing or publishing.")
+    else:
+        lines.append("- Data is current against the configured PHPP workbook.")
+
+    if not project.git.is_repo:
+        lines.append("- Project folder is not a git worktree; Commit & push is unavailable.")
+    elif project.git.dirty_count:
+        lines.append(f"- Git has {project.git.dirty_count} uncommitted change(s).")
+    else:
+        lines.append("- Git worktree is clean.")
+
+    if project.git.ahead:
+        lines.append(f"- Current branch is {project.git.ahead} commit(s) ahead of upstream.")
+    if project.git.behind:
+        lines.append(f"- Current branch is {project.git.behind} commit(s) behind upstream; v1 does not auto-pull.")
+    if project.lock is not None:
+        lines.append(f"- Lock state: {_lock_label(project)}.")
+    if project.warnings:
+        lines.append("- Project warnings need review before relying on status badges.")
+    return lines
+
+
+def _action_explanations(project: ProjectStatus, running: bool) -> list[str]:
+    states = {
+        "Scrape": _scrape_disabled_reason(project, running, True),
+        "Dev preview": _selected_disabled_reason(project, running, True),
+        "Reveal": _selected_disabled_reason(project, running, True),
+        "Open editor": _selected_disabled_reason(project, running, True),
+        "Commit & push": _commit_disabled_reason(project, running, True),
+    }
+    return [
+        f"- {name}: {'enabled' if reason is None else reason.removeprefix('Disabled: ')}"
+        for name, reason in states.items()
+    ]
+
+
+def _selected_disabled_reason(project: ProjectStatus | None, running: bool, enabled: bool) -> str | None:
+    if not enabled or project is None:
+        return "Disabled: no project selected."
+    if running:
+        return "Disabled: another command is running."
+    return None
+
+
+def _scrape_disabled_reason(project: ProjectStatus | None, running: bool, enabled: bool) -> str | None:
+    reason = _selected_disabled_reason(project, running, enabled)
+    if reason is not None:
+        return reason
+    assert project is not None
+    if project.metadata.phpp_path is None:
+        return "Disabled: project.yaml does not define source_files.phpp_path."
+    if not project.metadata.phpp_path.exists():
+        return "Disabled: configured PHPP workbook is missing."
+    return None
+
+
+def _commit_disabled_reason(project: ProjectStatus | None, running: bool, enabled: bool) -> str | None:
+    reason = _selected_disabled_reason(project, running, enabled)
+    if reason is not None:
+        return reason
+    assert project is not None
+    if not project.git.is_repo:
+        return "Disabled: project folder is not a git worktree."
+    if project.git.dirty_count == 0:
+        return "Disabled: git worktree is clean."
+    return None
 
 
 def _suggest_commit_message(project: ProjectStatus) -> str:

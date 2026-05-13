@@ -98,7 +98,8 @@ class ProcessRunner(QObject):
         spec = self._spec
         name = spec.name if spec is not None else "Command"
         message = self._process.errorString() if self._process is not None else str(error)
-        self.output.emit(message)
+        if not self._stop_requested:
+            self.output.emit(message)
         self.finished.emit(name, -1, False, self._stop_requested)
         self._process = None
         self._spec = None

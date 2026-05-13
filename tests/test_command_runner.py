@@ -50,6 +50,7 @@ def test_process_runner_stop_is_asynchronous(tmp_path: Path) -> None:
     assert elapsed < 0.5
     assert _wait_until(lambda: bool(events.finished), timeout_ms=4000)
     assert "Stopping process..." in events.output
+    assert "Process crashed" not in events.output
     assert events.finished[-1][0] == "Sleep"
     assert events.finished[-1][2] is False
     assert events.finished[-1][3] is True
