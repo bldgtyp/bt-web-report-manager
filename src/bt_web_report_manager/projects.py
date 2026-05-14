@@ -133,7 +133,9 @@ def read_project_metadata(project_path: Path) -> ProjectMetadata:
 def set_project_phpp_path(project_path: Path, phpp_path: Path | None) -> Path:
     """Update ``source_files.phpp_path`` in a content-only project's project.yaml."""
     project_yaml = project_path / "project.yaml"
-    trace_event("projects.phpp_path.set.start", project_path=project_path, project_yaml=project_yaml, phpp_path=phpp_path)
+    trace_event(
+        "projects.phpp_path.set.start", project_path=project_path, project_yaml=project_yaml, phpp_path=phpp_path
+    )
     if not project_yaml.exists():
         msg = f"project.yaml does not exist: {project_yaml}"
         raise ValueError(msg)

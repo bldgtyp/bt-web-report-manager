@@ -309,6 +309,8 @@ def commit_disabled_reason(project: ProjectStatus | None, running: bool, enabled
         return "Disabled: project folder is not a git worktree."
     if project.git.dirty_count == 0:
         return "Disabled: git worktree is clean."
+    if project.git.remote is None:
+        return "Disabled: git remote 'origin' is not configured."
     return None
 
 

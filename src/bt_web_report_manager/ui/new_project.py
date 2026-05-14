@@ -23,11 +23,13 @@ from bt_web_report_manager.new_project import (
     bootstrap_command_status,
     build_new_project_plan,
     clean_path_text,
-    default_slug_from_project_folder,
     meaningful_existing_items,
-    production_url_from_slug,
-    repo_name_from_slug,
+    production_url_from_project_number,
+    project_name_from_project_folder,
+    project_number_from_project_folder,
+    repo_name_from_number_name,
     sanitize_slug,
+    sanitize_project_number,
 )
 from bt_web_report_manager.settings import save_settings, unhide_project_path
 from bt_web_report_manager.trace import trace_event, trace_exception, trace_log_path
@@ -60,7 +62,7 @@ async def open_new_project_wizard(
         info_fields: dict[str, Any] = {}
         preview_md: list[Any] = []
         build_log: list[Any] = []
-        auto_fields = {"slug": True, "target": True, "repo": True, "url": True}
+        auto_fields = {"number": True, "name": True, "target": True}
         programmatic_update = {"active": False}
 
         async def _build_plan_from_inputs(*, overwrite_existing: bool = False) -> NewProjectPlan:
@@ -69,16 +71,15 @@ async def open_new_project_wizard(
             phpp_text = clean_path_text(info_fields["phpp_path"].value or "")
             plan = build_new_project_plan(
                 project_title=info_fields["project_title"].value or "",
-                slug=info_fields["slug"].value or "",
+                project_number=info_fields["project_number"].value or "",
+                project_name=info_fields["project_name"].value or "",
                 client_name=info_fields["client_name"].value or None,
                 building_name=info_fields["building_name"].value or None,
                 phase=info_fields["phase"].value or None,
                 local_folder=clean_path_text(info_fields["local_folder"].value or ""),
                 target_web_path=clean_path_text(info_fields["target_web_path"].value or ""),
                 phpp_path=phpp_text if phpp_text else None,
-                repo_name=info_fields["repo_name"].value or "",
                 repo_owner=state.settings.project_github_owner,
-                production_url=info_fields["production_url"].value or "",
                 overwrite_existing=overwrite_existing,
             )
             trace_event("ui.new_project.build_plan_from_inputs.done", summary=plan.summary_lines())
@@ -140,19 +141,16 @@ async def open_new_project_wizard(
                 _set_field(name, cleaned)
             return cleaned
 
-        def _sync_defaults_from_slug(slug: str) -> None:
-            clean_slug = sanitize_slug(slug)
+        def _sync_derived_names() -> None:
+            number = sanitize_project_number(info_fields["project_number"].value or "")
+            name = sanitize_slug(info_fields["project_name"].value or "")
             trace_event(
-                "ui.new_project.sync_from_slug",
-                input_slug=slug,
-                clean_slug=clean_slug,
-                auto_repo=auto_fields["repo"],
-                auto_url=auto_fields["url"],
+                "ui.new_project.sync_derived_names",
+                project_number=number,
+                project_name=name,
             )
-            if auto_fields["repo"]:
-                _set_field("repo_name", repo_name_from_slug(clean_slug))
-            if auto_fields["url"]:
-                _set_field("production_url", production_url_from_slug(clean_slug))
+            _set_field("repo_name", repo_name_from_number_name(number, name))
+            _set_field("production_url", production_url_from_project_number(number))
 
         def _sync_from_local_folder() -> None:
             local = _normalize_path_field("local_folder")
@@ -165,26 +163,31 @@ async def open_new_project_wizard(
                 local=local,
                 current_target=target,
                 auto_target=auto_fields["target"],
-                auto_slug=auto_fields["slug"],
-                current_slug=info_fields["slug"].value or "",
+                auto_number=auto_fields["number"],
+                auto_name=auto_fields["name"],
+                current_number=info_fields["project_number"].value or "",
+                current_name=info_fields["project_name"].value or "",
             )
             if auto_fields["target"] or not target:
                 _set_field("target_web_path", str(Path(local).expanduser() / "04_Web"))
-            current_slug = sanitize_slug(info_fields["slug"].value or "")
-            if auto_fields["slug"] or not current_slug:
-                default_slug = default_slug_from_project_folder(local)
-                _set_field("slug", default_slug)
-                _sync_defaults_from_slug(default_slug)
-            else:
-                _sync_defaults_from_slug(current_slug)
+            current_number = sanitize_project_number(info_fields["project_number"].value or "")
+            if auto_fields["number"] or not current_number:
+                _set_field("project_number", project_number_from_project_folder(local))
+            current_name = sanitize_slug(info_fields["project_name"].value or "")
+            if auto_fields["name"] or not current_name:
+                _set_field("project_name", project_name_from_project_folder(local))
+            _sync_derived_names()
 
         def _sync_all_defaults() -> None:
             trace_event("ui.new_project.sync_all_defaults.start")
             _sync_from_local_folder()
-            slug = sanitize_slug(info_fields["slug"].value or "")
-            if slug != (info_fields["slug"].value or ""):
-                _set_field("slug", slug)
-            _sync_defaults_from_slug(slug)
+            number = sanitize_project_number(info_fields["project_number"].value or "")
+            if number != (info_fields["project_number"].value or ""):
+                _set_field("project_number", number)
+            name = sanitize_slug(info_fields["project_name"].value or "")
+            if name != (info_fields["project_name"].value or ""):
+                _set_field("project_name", name)
+            _sync_derived_names()
             trace_event(
                 "ui.new_project.sync_all_defaults.done",
                 values={name: field.value for name, field in info_fields.items()},
@@ -269,12 +272,18 @@ async def open_new_project_wizard(
                             .classes("flex-1")
                             .tooltip("Human-readable project title used in dashboards.")
                         )
-                        info_fields["slug"] = (
-                            ui.input("Slug name", placeholder="project-2606")
+                        info_fields["project_number"] = (
+                            ui.input("Project number", placeholder="2606")
+                            .props("outlined dense")
+                            .classes("w-36")
+                            .tooltip("Four-digit BT project number. Default is parsed from the local folder.")
+                        )
+                        info_fields["project_name"] = (
+                            ui.input("Short name", placeholder="vandam")
                             .props("outlined dense")
                             .classes("flex-1")
                             .tooltip(
-                                "Stable lowercase ID for the report. It drives the repo name and production subdomain; default is project-<BT number> from the local folder."
+                                "Lowercase project name for the internal repo. Default is parsed from the local folder."
                             )
                         )
                     with ui.row().classes("w-full gap-3"):
@@ -300,27 +309,42 @@ async def open_new_project_wizard(
                     with ui.row().classes("w-full gap-3"):
                         info_fields["repo_name"] = (
                             ui.input("Repo name")
-                            .props("outlined dense")
+                            .props("outlined dense readonly")
                             .classes("flex-1")
                             .tooltip(
-                                f"Will be created under {state.settings.project_github_owner}/. Format: bt-proj-<slug>."
+                                f"Derived under {state.settings.project_github_owner}/. Format: bt-proj-<number>-<name>."
                             )
                         )
                         info_fields["production_url"] = (
-                            ui.input("Production URL", placeholder="https://<slug>.bldgtyp.com")
-                            .props("outlined dense")
+                            ui.input("Production URL", placeholder="https://project-<number>.bldgtyp.com")
+                            .props("outlined dense readonly")
                             .classes("flex-1")
-                            .tooltip("Final Cloudflare Pages origin. https://<slug>.bldgtyp.com")
+                            .tooltip("Derived Cloudflare Pages URL. HTTPS is required by the renderer schema.")
                         )
 
-                    def _on_slug_change() -> None:
+                    def _on_project_number_change() -> None:
                         if not programmatic_update["active"]:
-                            trace_event("ui.new_project.slug.user_changed", value=info_fields["slug"].value or "")
-                            auto_fields["slug"] = False
-                        slug = sanitize_slug(info_fields["slug"].value or "")
-                        if slug != (info_fields["slug"].value or ""):
-                            _set_field("slug", slug)
-                        _sync_defaults_from_slug(slug)
+                            trace_event(
+                                "ui.new_project.project_number.user_changed",
+                                value=info_fields["project_number"].value or "",
+                            )
+                            auto_fields["number"] = False
+                        number = sanitize_project_number(info_fields["project_number"].value or "")
+                        if number != (info_fields["project_number"].value or ""):
+                            _set_field("project_number", number)
+                        _sync_derived_names()
+
+                    def _on_project_name_change() -> None:
+                        if not programmatic_update["active"]:
+                            trace_event(
+                                "ui.new_project.project_name.user_changed",
+                                value=info_fields["project_name"].value or "",
+                            )
+                            auto_fields["name"] = False
+                        name = sanitize_slug(info_fields["project_name"].value or "")
+                        if name != (info_fields["project_name"].value or ""):
+                            _set_field("project_name", name)
+                        _sync_derived_names()
 
                     def _on_local_folder_change() -> None:
                         if not programmatic_update["active"]:
@@ -335,11 +359,10 @@ async def open_new_project_wizard(
                             trace_event("ui.new_project.auto_field.disabled", field=name)
                             auto_fields[name] = False
 
-                    info_fields["slug"].on("update:model-value", lambda _e: _on_slug_change())
+                    info_fields["project_number"].on("update:model-value", lambda _e: _on_project_number_change())
+                    info_fields["project_name"].on("update:model-value", lambda _e: _on_project_name_change())
                     info_fields["local_folder"].on("update:model-value", lambda _e: _on_local_folder_change())
                     info_fields["target_web_path"].on("update:model-value", lambda _e: _mark_manual("target"))
-                    info_fields["repo_name"].on("update:model-value", lambda _e: _mark_manual("repo"))
-                    info_fields["production_url"].on("update:model-value", lambda _e: _mark_manual("url"))
                     info_fields["phpp_path"].on("update:model-value", lambda _e: _normalize_path_field("phpp_path"))
                     _sync_from_local_folder()
 

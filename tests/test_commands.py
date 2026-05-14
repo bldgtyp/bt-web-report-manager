@@ -5,9 +5,12 @@ from pytest import MonkeyPatch
 from bt_web_report_manager.commands import (
     commit_push_command,
     dev_preview_command,
+    executable_search_paths,
     resolve_executable,
+    node_toolchain_bin_dirs,
     open_code_editor_command,
     open_editor_command,
+    renderer_bin_dirs,
     run_command,
     scrape_command,
     tool_status,
@@ -63,9 +66,10 @@ def test_action_command_specs(tmp_path: Path) -> None:
     assert open_code_editor_command(project, settings).args == ("code-dev", str(tmp_path))
     commit = commit_push_command(project, settings, "Update report")
     assert commit.args[0:2] == ("/bin/sh", "-lc")
+    assert "remote get-url origin" in commit.args[2]
     assert " add -A -- . ':!.bldgtyp/lock.yaml'" in commit.args[2]
     assert "git commit -m 'Update report'" in commit.args[2]
-    assert "git push" in commit.args[2]
+    assert "git push -u origin HEAD" in commit.args[2]
     assert commit.refresh_on_success
 
 
@@ -104,6 +108,28 @@ def test_commit_push_command_pushes_without_committing_lock_file(tmp_path: Path)
     assert "Update report" in remote_log.stdout
 
 
+def test_commit_push_command_fails_before_commit_when_origin_missing(tmp_path: Path) -> None:
+    project_path = tmp_path / "project"
+    run_command(["git", "init", str(project_path)])
+    run_command(["git", "config", "user.email", "test@example.com"], cwd=project_path)
+    run_command(["git", "config", "user.name", "Test User"], cwd=project_path)
+    run_command(["git", "branch", "-M", "main"], cwd=project_path)
+    (project_path / "README.md").write_text("initial\n")
+    project = ProjectStatus(
+        project_path=project_path,
+        metadata=ProjectMetadata("slug", "Project", None, None, None, None, project_path / "data", None),
+        git=GitStatus(True, branch="main", dirty_count=1),
+    )
+
+    spec = commit_push_command(project, ManagerSettings(), "Update report")
+    result = run_command(spec.args, cwd=spec.cwd)
+
+    assert result.returncode != 0
+    assert "No such remote 'origin'" in result.stderr
+    log = run_command(["git", "log", "--oneline"], cwd=project_path)
+    assert log.returncode != 0
+
+
 def test_resolve_executable_uses_manager_search_path(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -113,6 +139,35 @@ def test_resolve_executable_uses_manager_search_path(monkeypatch: MonkeyPatch, t
     monkeypatch.setenv("PATH", str(bin_dir))
 
     assert resolve_executable("tool") == str(executable)
+
+
+def test_resolve_executable_uses_app_support_renderer_bin(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    support_dir = tmp_path / "support"
+    bin_dir = support_dir / "renderer" / "current" / "node_modules" / ".bin"
+    bin_dir.mkdir(parents=True)
+    executable = bin_dir / "wrangler"
+    executable.write_text("#!/bin/sh\nexit 0\n")
+    executable.chmod(0o755)
+    monkeypatch.setenv("BTWR_MANAGER_APP_SUPPORT", str(support_dir))
+    monkeypatch.setenv("PATH", "")
+
+    assert renderer_bin_dirs()[0] == bin_dir
+    assert str(bin_dir) in executable_search_paths()
+    assert resolve_executable("wrangler") == str(executable)
+
+
+def test_executable_search_path_prefers_nvm_node(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    node_bin = home / ".nvm" / "versions" / "node" / "v22.22.2" / "bin"
+    node_bin.mkdir(parents=True)
+    node = node_bin / "node"
+    node.write_text("#!/bin/sh\nexit 0\n")
+    node.chmod(0o755)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("PATH", "/usr/local/bin")
+
+    assert node_toolchain_bin_dirs() == (node_bin,)
+    assert executable_search_paths().index(str(node_bin)) < executable_search_paths().index("/usr/local/bin")
 
 
 def test_resolve_executable_rejects_non_executable_explicit_path(tmp_path: Path) -> None:

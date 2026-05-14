@@ -542,6 +542,7 @@ def _partner_setup_markdown(state: ManagerState) -> str:
    - Install Apple Command Line Tools if `git` is missing: `xcode-select --install`.
    - Install Homebrew if needed.
    - Install runtime tools: `brew install pnpm gh`.
+   - Install Node 22+ with NVM or another user-level Node manager; Wrangler will fail under older Node versions.
    - Install VS Code's `code` command from VS Code: Command Palette -> `Shell Command: Install 'code' command in PATH`.
 
 4. **Authenticate GitHub.**

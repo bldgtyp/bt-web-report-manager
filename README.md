@@ -120,15 +120,17 @@ git status --branch --porcelain=v2
 
 `gh` is invoked only by the New-project wizard's optional bootstrap path
 when `btwr new --help` is available. Executable lookup includes the configured
-value, the shared Dropbox workspace `.venv/bin`, and standard macOS Homebrew /
-VS Code command paths so Finder-launched `.app` builds can resolve the same
-tools as terminal launches.
+value, the shared Dropbox workspace `.venv/bin`, shared renderer
+`node_modules/.bin` folders, NVM Node bins, and standard macOS Homebrew / VS
+Code command paths so Finder-launched `.app` builds can resolve the same tools
+as terminal launches. Wrangler is provided by the shared renderer runtime and
+currently requires Node 22+.
 
 Missing tools surface as warnings in System Check and the trace log rather
 than crashing the GUI. System Check covers the writable app-support folder,
 Dropbox project root, optional renderer source, `btwr doctor`, `pnpm`,
-`node`, the Python runtime, `uv`, `git`, `gh`, `gh auth status`, and the
-configured editor.
+`node`, `wrangler`, the Python runtime, `uv`, `git`, `gh`, `gh auth status`,
+and the configured editor.
 
 ## Trace log
 
@@ -145,6 +147,6 @@ internal support handoff.
 
 For John or another BLDGTYP operator, use **System Check → Setup guide** in
 the app. It lists the required install steps: Dropbox project-root access,
-Homebrew tools (`pnpm`, `gh`), GitHub auth, VS Code's `code` command, and the
-current `btwr` CLI path requirement. The full release-owner checklist is in
-`docs/release-checklist.md`.
+Homebrew tools (`pnpm`, `gh`), Node 22+, GitHub auth, VS Code's `code`
+command, and the current `btwr` CLI path requirement. The full release-owner
+checklist is in `docs/release-checklist.md`.

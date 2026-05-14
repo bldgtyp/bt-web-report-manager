@@ -24,6 +24,7 @@ def system_statuses(settings: ManagerSettings) -> list[ToolStatus]:
         tool_status("btwr", settings.btwr_executable, ("doctor",)),
         tool_status("pnpm", settings.pnpm_executable),
         tool_status("node", "node"),
+        tool_status("wrangler", "wrangler"),
         tool_status("python", sys.executable),
         tool_status("uv", "uv"),
         tool_status("git", settings.git_executable),

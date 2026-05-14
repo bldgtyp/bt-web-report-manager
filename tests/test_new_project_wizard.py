@@ -22,23 +22,22 @@ def test_build_new_project_plan_produces_summary_and_manual_checklist(tmp_path: 
     local_folder = tmp_path / "Project"
     plan = build_new_project_plan(
         project_title="Project",
-        slug="project",
+        project_number="2606",
+        project_name="vandam",
         client_name=None,
         building_name=None,
         phase=None,
         local_folder=local_folder,
         target_web_path=local_folder / "04_Web",
         phpp_path=None,
-        repo_name="bt-proj-project",
-        production_url="https://project.bldgtyp.com",
     )
 
     summary = plan.summary_lines()
     checklist = plan.manual_checklist()
 
     assert any("Project title: Project" in line for line in summary)
-    assert any("GitHub repo: bldgtyp-projects/bt-proj-project" in line for line in summary)
-    assert any("Phase 7 dependency: btwr new is not implemented" in line for line in checklist)
+    assert any("GitHub repo: bldgtyp-projects/bt-proj-2606-vandam" in line for line in summary)
+    assert any("Phase 7 dependency: btwr new is not available" in line for line in checklist)
     assert any(f"Create target web folder: {local_folder / '04_Web'}" in line for line in checklist)
 
 

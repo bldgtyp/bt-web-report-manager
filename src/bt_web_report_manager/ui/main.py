@@ -327,7 +327,7 @@ def build_page(state: ManagerState) -> None:
             "medical_services",
             lambda: on_doctor(),
             "",
-            "Read-only check of btwr, pnpm, git, gh, editor, and settings folder.",
+            "Read-only check of btwr, pnpm, node, wrangler, git, gh, editor, and settings folder.",
         )
         _tool_button(
             "Check updates",
@@ -586,17 +586,15 @@ def build_page(state: ManagerState) -> None:
                             icon="drive_folder_upload",
                             color=None,
                             on_click=lambda: ui.timer(0, reset_web_root, once=True),
-                        ).props(
-                            "flat dense round"
-                        ).classes("icon-tool").tooltip("Choose a replacement web-root folder with project.yaml.")
+                        ).props("flat dense round").classes("icon-tool").tooltip(
+                            "Choose a replacement web-root folder with project.yaml."
+                        )
                     if location.key == "phpp":
                         ui.button(
                             icon="folder_open",
                             color=None,
                             on_click=lambda: ui.timer(0, reset_phpp_path, once=True),
-                        ).props(
-                            "flat dense round"
-                        ).classes("icon-tool").tooltip("Choose a replacement PHPP workbook.")
+                        ).props("flat dense round").classes("icon-tool").tooltip("Choose a replacement PHPP workbook.")
                     ui.button(
                         icon="content_copy",
                         color=None,
@@ -700,9 +698,11 @@ def build_page(state: ManagerState) -> None:
             return
         selected = await choose_file_dialog(
             title="Choose PHPP workbook",
-            initial_dir=project.metadata.phpp_path.parent
-            if project.metadata.phpp_path is not None
-            else project.project_path.parent,
+            initial_dir=(
+                project.metadata.phpp_path.parent
+                if project.metadata.phpp_path is not None
+                else project.project_path.parent
+            ),
             filetypes=(("Excel workbooks", "*.xlsx *.xlsm"), ("All files", "*")),
         )
         if selected is None:
@@ -865,14 +865,15 @@ def build_page(state: ManagerState) -> None:
 
     async def run_commit_push() -> None:
         project = state.selected_project()
-        if project is None or not project.git.is_repo or project.git.dirty_count == 0:
+        if project is None or not project.git.is_repo or project.git.dirty_count == 0 or project.git.remote is None:
             trace_event(
                 "ui.action.commit_push.blocked",
                 project=project.project_path if project is not None else None,
                 is_repo=project.git.is_repo if project is not None else None,
                 dirty_count=project.git.dirty_count if project is not None else None,
+                remote=project.git.remote if project is not None else None,
             )
-            log_message("Commit & push requires a dirty git worktree.")
+            log_message("Commit & push requires a dirty git worktree with a configured origin remote.")
             return
         message = await prompt_dialog(
             title="Commit & push",

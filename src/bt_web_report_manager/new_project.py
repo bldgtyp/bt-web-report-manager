@@ -16,12 +16,37 @@ from bt_web_report_manager.trace import trace_event, trace_exception
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 BT_NUMBER_RE = re.compile(r"^(\d{4})(?:\D|$)")
+PROJECT_NUMBER_RE = re.compile(r"^\d{4}$")
 IGNORED_EXISTING_NAMES = {".DS_Store", ".localized", "Icon\r", "desktop.ini", "Thumbs.db"}
+TRAILING_STREET_WORDS = {
+    "ave",
+    "avenue",
+    "blvd",
+    "boulevard",
+    "circle",
+    "court",
+    "ct",
+    "drive",
+    "dr",
+    "lane",
+    "ln",
+    "place",
+    "pl",
+    "rd",
+    "road",
+    "st",
+    "street",
+    "terrace",
+    "ter",
+    "way",
+}
 
 
 @dataclass(frozen=True)
 class NewProjectPlan:
     project_title: str
+    project_number: str
+    project_name: str
     slug: str
     client_name: str | None
     building_name: str | None
@@ -44,6 +69,8 @@ class NewProjectPlan:
         phpp = str(self.phpp_path) if self.phpp_path is not None else "None configured"
         return [
             f"Project title: {self.project_title}",
+            f"Project number: {self.project_number}",
+            f"Project name: {self.project_name}",
             f"Slug: {self.slug}",
             f"Client: {self.client_name or '-'}",
             f"Building: {self.building_name or '-'}",
@@ -63,7 +90,7 @@ class NewProjectPlan:
             else "Leave source_files.phpp_path empty until the PHPP workbook is ready."
         )
         return [
-            "Phase 7 dependency: btwr new is not implemented in the configured CLI yet.",
+            "Phase 7 dependency: btwr new is not available in the configured CLI yet.",
             "",
             "Manual checklist:",
             f"1. Create or verify project folder: {self.local_folder}",
@@ -91,45 +118,47 @@ class BootstrapCommandStatus:
 def build_new_project_plan(
     *,
     project_title: str,
-    slug: str,
+    project_number: str,
+    project_name: str,
     client_name: str | None,
     building_name: str | None,
     phase: str | None,
     local_folder: Path | str,
     target_web_path: Path | str,
     phpp_path: Path | str | None,
-    repo_name: str,
-    production_url: str,
     repo_owner: str = "bldgtyp-projects",
     overwrite_existing: bool = False,
 ) -> NewProjectPlan:
     trace_event(
         "new_project.plan.build.start",
         project_title=project_title,
-        slug=slug,
+        project_number=project_number,
+        project_name=project_name,
         client_name=client_name,
         building_name=building_name,
         phase=phase,
         local_folder=local_folder,
         target_web_path=target_web_path,
         phpp_path=phpp_path,
-        repo_name=repo_name,
-        production_url=production_url,
         repo_owner=repo_owner,
         overwrite_existing=overwrite_existing,
     )
+    clean_number = sanitize_project_number(project_number)
+    clean_name = sanitize_slug(project_name)
     plan = NewProjectPlan(
         project_title=project_title.strip(),
-        slug=sanitize_slug(slug),
+        project_number=clean_number,
+        project_name=clean_name,
+        slug=slug_from_project_number(clean_number),
         client_name=_clean_optional(client_name),
         building_name=_clean_optional(building_name),
         phase=_clean_optional(phase),
         local_folder=coerce_user_path(local_folder),
         target_web_path=coerce_user_path(target_web_path),
         phpp_path=coerce_user_path(phpp_path) if phpp_path is not None else None,
-        repo_name=repo_name.strip(),
+        repo_name=repo_name_from_number_name(clean_number, clean_name),
         repo_owner=repo_owner.strip(),
-        production_url=production_url.strip(),
+        production_url=production_url_from_project_number(clean_number),
         overwrite_existing=overwrite_existing,
     )
     errors = validate_new_project_plan(plan)
@@ -169,21 +198,68 @@ def sanitize_slug(value: str | None) -> str:
     return slug
 
 
-def default_slug_from_project_folder(local_folder: Path | str) -> str:
+def sanitize_project_number(value: str | None) -> str:
+    number = re.sub(r"\D+", "", (value or "").strip())
+    if number != (value or ""):
+        trace_event("new_project.project_number.sanitize", original=value, project_number=number)
+    return number
+
+
+def project_number_from_project_folder(local_folder: Path | str) -> str:
     name = coerce_user_path(local_folder).name
     match = BT_NUMBER_RE.match(name)
     if match:
-        slug = f"project-{match.group(1)}"
-        trace_event("new_project.slug.default.bt_number", folder=local_folder, folder_name=name, slug=slug)
-        return slug
-    slug = sanitize_slug(name)
-    trace_event("new_project.slug.default.folder_name", folder=local_folder, folder_name=name, slug=slug)
-    return slug
+        number = match.group(1)
+        trace_event(
+            "new_project.project_number.default.bt_number", folder=local_folder, folder_name=name, number=number
+        )
+        return number
+    trace_event("new_project.project_number.default.missing", folder=local_folder, folder_name=name)
+    return ""
+
+
+def project_name_from_project_folder(local_folder: Path | str) -> str:
+    folder_name = coerce_user_path(local_folder).name
+    name = re.sub(r"^\d{4}(?:\D|$)", "", folder_name).strip()
+    name = re.sub(r"\{[^}]*\}", " ", name)
+    name = re.sub(r"^\d+\s+", "", name.strip())
+    words = sanitize_slug(name).split("-")
+    if len(words) > 1 and words[-1] in TRAILING_STREET_WORDS:
+        words = words[:-1]
+    project_name = "-".join(word for word in words if word)
+    trace_event(
+        "new_project.project_name.default",
+        folder=local_folder,
+        folder_name=folder_name,
+        raw_name=name,
+        project_name=project_name,
+    )
+    return project_name
+
+
+def slug_from_project_number(project_number: str) -> str:
+    number = sanitize_project_number(project_number)
+    return f"project-{number}" if number else ""
+
+
+def default_slug_from_project_folder(local_folder: Path | str) -> str:
+    return slug_from_project_number(project_number_from_project_folder(local_folder))
+
+
+def repo_name_from_number_name(project_number: str, project_name: str) -> str:
+    number = sanitize_project_number(project_number)
+    name = sanitize_slug(project_name)
+    return f"bt-proj-{number}-{name}" if number and name else ""
 
 
 def repo_name_from_slug(slug: str) -> str:
     clean_slug = sanitize_slug(slug)
     return f"bt-proj-{clean_slug}" if clean_slug else ""
+
+
+def production_url_from_project_number(project_number: str) -> str:
+    number = sanitize_project_number(project_number)
+    return f"https://project-{number}.bldgtyp.com" if number else ""
 
 
 def production_url_from_slug(slug: str) -> str:
@@ -212,8 +288,12 @@ def validate_new_project_plan(plan: NewProjectPlan) -> list[str]:
     errors: list[str] = []
     if not plan.project_title:
         errors.append("Project title is required.")
+    if not PROJECT_NUMBER_RE.fullmatch(plan.project_number):
+        errors.append("Project number must be exactly 4 digits.")
+    if not SLUG_RE.fullmatch(plan.project_name):
+        errors.append("Project name must be lowercase kebab-case, using only a-z, 0-9, and single hyphens.")
     if not SLUG_RE.fullmatch(plan.slug):
-        errors.append("Slug must be lowercase kebab-case, using only a-z, 0-9, and single hyphens.")
+        errors.append("Slug must be derived as project-<number>.")
     if not plan.local_folder.is_absolute():
         errors.append("Local folder must be an absolute path.")
     elif plan.local_folder.exists() and not plan.local_folder.is_dir():
@@ -244,12 +324,13 @@ def validate_new_project_plan(plan: NewProjectPlan) -> list[str]:
         errors.append("Repo name can only use letters, numbers, hyphens, underscores, and periods.")
     if not REPO_RE.fullmatch(plan.repo_owner):
         errors.append("Repo owner can only use letters, numbers, hyphens, underscores, and periods.")
-    if plan.repo_name != repo_name_from_slug(plan.slug):
-        errors.append(f"Repo name must be {repo_name_from_slug(plan.slug)}.")
+    expected_repo_name = repo_name_from_number_name(plan.project_number, plan.project_name)
+    if plan.repo_name != expected_repo_name:
+        errors.append(f"Repo name must be {expected_repo_name}.")
     parsed = urlparse(plan.production_url)
     if parsed.scheme != "https" or not parsed.netloc or parsed.path not in ("", "/"):
         errors.append("Production URL must be an https origin URL without a path.")
-    expected_host = f"{plan.slug}.bldgtyp.com"
+    expected_host = f"project-{plan.project_number}.bldgtyp.com"
     if parsed.netloc and parsed.netloc != expected_host:
         errors.append(f"Production URL host must be {expected_host}.")
     trace_event("new_project.plan.validate.done", error_count=len(errors), errors=errors)
@@ -337,6 +418,8 @@ def bootstrap_command(plan: NewProjectPlan, settings: ManagerSettings) -> Comman
         plan.project_title,
         "--repo",
         plan.repo_name,
+        "--repo-owner",
+        plan.repo_owner,
         "--production-url",
         plan.production_url,
     ]

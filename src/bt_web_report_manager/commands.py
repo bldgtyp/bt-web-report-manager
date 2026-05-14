@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from bt_web_report_manager.models import ManagerSettings, ProjectStatus, ToolStatus
-from bt_web_report_manager.settings import settings_write_status, workspace_btwr_executable
+from bt_web_report_manager.settings import app_support_dir, settings_write_status, workspace_btwr_executable
 from bt_web_report_manager.trace import trace_event, trace_exception
 
 EXTRA_EXECUTABLE_DIRS = (
@@ -22,6 +22,10 @@ EXTRA_EXECUTABLE_DIRS = (
     "/usr/sbin",
     "/sbin",
     "/Applications/Visual Studio Code.app/Contents/Resources/app/bin",
+)
+
+WORKSPACE_RENDERER_BIN_DIRS = (
+    Path("~/Dropbox/bldgtyp-00/00_PH_Tools/bt-web-report/bt-web-report-template/node_modules/.bin").expanduser(),
 )
 
 
@@ -52,11 +56,28 @@ def executable_search_paths() -> tuple[str, ...]:
     workspace_btwr = workspace_btwr_executable()
     if workspace_btwr is not None:
         paths.append(str(Path(workspace_btwr).parent))
+    paths.extend(str(path) for path in renderer_bin_dirs())
+    paths.extend(str(path) for path in node_toolchain_bin_dirs())
     paths.extend(path for path in os.environ.get("PATH", "").split(os.pathsep) if path)
     paths.extend(EXTRA_EXECUTABLE_DIRS)
     unique_paths = tuple(dict.fromkeys(paths))
     trace_event("commands.executable_search_paths", paths=unique_paths)
     return unique_paths
+
+
+def renderer_bin_dirs() -> tuple[Path, ...]:
+    """Return Node executable folders owned by the shared renderer runtime."""
+    app_support_renderer_bin = app_support_dir() / "renderer" / "current" / "node_modules" / ".bin"
+    return (app_support_renderer_bin, *WORKSPACE_RENDERER_BIN_DIRS)
+
+
+def node_toolchain_bin_dirs() -> tuple[Path, ...]:
+    """Return user-managed Node bins so Finder-launched subprocesses avoid stale system Node."""
+    nvm_versions = Path("~/.nvm/versions/node").expanduser()
+    if not nvm_versions.exists():
+        return ()
+    candidates = sorted(nvm_versions.glob("v*/bin"), reverse=True)
+    return tuple(path for path in candidates if (path / "node").exists())
 
 
 def resolve_executable(executable: str) -> str | None:
@@ -141,6 +162,7 @@ def doctor(settings: ManagerSettings) -> list[ToolStatus]:
         settings_write_status(),
         tool_status("btwr", settings.btwr_executable, ("doctor",)),
         tool_status("pnpm", settings.pnpm_executable),
+        tool_status("wrangler", "wrangler"),
         tool_status("git", settings.git_executable),
         tool_status("gh", settings.gh_executable, ("--version",)),
         tool_status("editor", settings.editor_command, ("--version",)),
@@ -221,9 +243,12 @@ def commit_push_command(project: ProjectStatus, settings: ManagerSettings, messa
     quoted_message = shlex.quote(message)
     quoted_git = shlex.quote(command_executable(settings.git_executable))
     script = (
+        f"{quoted_git} remote get-url origin >/dev/null "
+        f"&& {quoted_git} rev-parse --abbrev-ref HEAD >/dev/null "
+        f"&& "
         f"{quoted_git} add -A -- . ':!.bldgtyp/lock.yaml' "
         f"&& {quoted_git} commit -m {quoted_message} "
-        f"&& {quoted_git} push"
+        f"&& {quoted_git} push -u origin HEAD"
     )
     return CommandSpec(
         name="Commit & push",

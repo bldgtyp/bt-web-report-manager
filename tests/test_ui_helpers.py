@@ -58,6 +58,18 @@ def test_commit_disabled_for_clean_repo(tmp_path: Path) -> None:
     assert "clean" in reason
 
 
+def test_commit_disabled_for_dirty_repo_without_origin(tmp_path: Path) -> None:
+    project = _make_project(tmp_path, with_phpp=True)
+    (project / "content.mdx").write_text("draft\n")
+    settings = ManagerSettings(projects_root=tmp_path)
+    status = read_project_status(project, settings)
+
+    reason = commit_disabled_reason(status, running=False, enabled=True)
+
+    assert reason is not None
+    assert "origin" in reason
+
+
 def test_open_editor_enabled_for_content_only_project(tmp_path: Path) -> None:
     project = _make_project(tmp_path, with_phpp=True)
     settings = ManagerSettings(projects_root=tmp_path)
