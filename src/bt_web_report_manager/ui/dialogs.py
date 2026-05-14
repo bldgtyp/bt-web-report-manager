@@ -348,7 +348,9 @@ async def open_doctor_dialog(state: ManagerState) -> None:
                 "Close",
                 on_click=_close_doctor,
                 color=None,
-            ).props("flat unelevated no-caps").classes("action-btn is-primary")
+            ).props(
+                "flat unelevated no-caps"
+            ).classes("action-btn is-primary")
 
     await dialog
 

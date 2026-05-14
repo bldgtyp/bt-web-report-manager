@@ -34,6 +34,10 @@ def configure_trace_logging() -> Path:
     logger = logging.getLogger(LOGGER_NAME)
     logger.setLevel(logging.INFO)
     logger.propagate = False
+    for handler in tuple(logger.handlers):
+        if isinstance(handler, RotatingFileHandler) and Path(handler.baseFilename) != path:
+            logger.removeHandler(handler)
+            handler.close()
     if not any(
         isinstance(handler, RotatingFileHandler) and Path(handler.baseFilename) == path for handler in logger.handlers
     ):

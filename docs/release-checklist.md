@@ -45,6 +45,8 @@ Then exercise:
 1. App opens (browser tab or `BTWR_MANAGER_NATIVE=1` window) and projects
    list populates from Dropbox.
 2. System Check reports settings-folder write access and all expected tool paths.
+   Confirm the trace log path is visible and writable:
+   `~/Library/Application Support/bt-web-report-manager/logs/manager-trace.log`.
 3. Settings round-trips: change `lock_ttl_hours`, save, reopen, value
    persists.
 4. Check updates logs a result against `bldgtyp/bt-web-report-manager`.

@@ -118,12 +118,22 @@ git status --branch --porcelain=v2
 ```
 
 `gh` is invoked only by the New-project wizard's optional bootstrap path
-when `btwr new --help` is available. The default `btwr` lookup is plain
-`btwr` on `PATH`; use Settings to point at a different executable when
-testing locally.
+when `btwr new --help` is available. Executable lookup includes the configured
+value, the shared Dropbox workspace `.venv/bin`, and standard macOS Homebrew /
+VS Code command paths so Finder-launched `.app` builds can resolve the same
+tools as terminal launches.
 
 Missing tools surface as warnings in the action log and as System Check
 findings rather than crashing the GUI.
+
+## Trace log
+
+The Manager writes a rotating support trace at
+`~/Library/Application Support/bt-web-report-manager/logs/manager-trace.log`.
+System Check shows this path. The trace records app startup, settings
+load/save, executable search paths, System Check rows, project discovery, git
+and lock status, New-project picker/default/build steps, command arguments,
+process output, and failures.
 
 ## Partner setup
 

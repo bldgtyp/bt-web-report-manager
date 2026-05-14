@@ -411,8 +411,11 @@ def build_page(state: ManagerState) -> None:
                     icon="content_copy",
                     color=None,
                     on_click=_copy_project_paths,
-                ).props("flat dense unelevated no-caps").classes("panel-tool")
+                ).props(
+                    "flat dense unelevated no-caps"
+                ).classes("panel-tool")
             for location in project_file_locations(project):
+
                 def _copy_location_value(value: str = location.value, kind: str = location.kind) -> None:
                     trace_event("ui.files.copy_value.clicked", kind=kind, value=value)
                     copy_text(value)
@@ -426,7 +429,9 @@ def build_page(state: ManagerState) -> None:
                         icon="content_copy",
                         color=None,
                         on_click=_copy_location_value,
-                    ).props("flat dense round").classes("icon-tool")
+                    ).props(
+                        "flat dense round"
+                    ).classes("icon-tool")
 
     def render_action_log(project: ProjectStatus) -> None:
         with ui.element("div").classes("log-shell workspace-log"):
