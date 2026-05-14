@@ -19,6 +19,10 @@ def test_local_preview_url_ignores_non_local_urls() -> None:
     assert local_preview_url_from_log_line("no url here") is None
 
 
+def test_local_preview_url_ignores_tina_graphql_api_url() -> None:
+    assert local_preview_url_from_log_line("API url: http://localhost:4001/graphql") is None
+
+
 def test_tina_admin_url_uses_local_preview_origin() -> None:
     assert tina_admin_url("http://127.0.0.1:4321/") == "http://127.0.0.1:4321/admin/index.html"
 

@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 LOCAL_PREVIEW_URL_RE = re.compile(r"https?://(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:/[^\s]*)?")
 LOCAL_PREVIEW_HOSTS = {"localhost", "127.0.0.1", "::1"}
+TINA_API_PATHS = {"/graphql"}
 
 
 def local_preview_url_from_log_line(line: str) -> str | None:
@@ -19,6 +20,8 @@ def local_preview_url_from_log_line(line: str) -> str | None:
     url = match.group(0).rstrip(".,;")
     parsed = urlparse(url)
     if parsed.hostname not in LOCAL_PREVIEW_HOSTS:
+        return None
+    if parsed.path.rstrip("/") in TINA_API_PATHS:
         return None
     return url
 
