@@ -6,9 +6,9 @@ notarization keychain profile are available:
 `2D9B3302F8D8203D837B071A3CFAF5CD9FEACF4E` and
 `bt-web-report-manager`.
 
-> **Note (2026-05-13)**: Packaging switched from Briefcase + DMG to
-> `nicegui-pack` (PyInstaller). The release artifact is a zipped `.app`
-> rather than a DMG. Bundle size dropped from ~500 MB to ~110 MB.
+> **Note (2026-05-13)**: Packaging uses `nicegui-pack` (PyInstaller).
+> The release artifact is a zipped `.app` rather than a DMG.
+> Bundle size is ~110 MB.
 
 ## Build locally
 

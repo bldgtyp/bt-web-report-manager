@@ -1,1 +1,1 @@
-"""Qt user interface package."""
+"""NiceGUI user interface package."""

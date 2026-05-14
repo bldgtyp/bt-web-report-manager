@@ -52,8 +52,7 @@ uv run mypy src tests
 
 ## Packaging
 
-The new packaging story is **PyInstaller via `nicegui-pack`** (Briefcase
-was removed during the NiceGUI port). The build script handles dep sync,
+The packaging story is **PyInstaller via `nicegui-pack`**. The build script handles dep sync,
 packing, and ad-hoc codesigning so Gatekeeper lets the bundle open locally:
 
 ```bash
@@ -61,8 +60,7 @@ uv sync --extra dev --extra package
 make build
 ```
 
-This produces `dist/bt-web-report Manager.app`. Bundle size is ~110 MB
-(versus ~500 MB for the previous Qt + Briefcase build).
+This produces `dist/bt-web-report Manager.app`. Bundle size is ~110 MB.
 
 For a signed/notarized release build, run `make release-build`. It wraps the
 Developer ID identity and notarytool profile used for this app. See

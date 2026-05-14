@@ -3,7 +3,7 @@
 Replaces the QProcess-based ``ProcessRunner`` with an ``asyncio.subprocess``
 implementation. Same public surface: ``is_running``, ``start(spec)``,
 ``stop()``, ``shutdown()`` and ``on_log`` / ``on_done`` callbacks that mirror
-the old Qt signal payloads.
+the previous UI-runner payloads.
 """
 
 from __future__ import annotations
