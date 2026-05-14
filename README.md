@@ -84,10 +84,9 @@ temporary folder.
 - **Action cluster**: grouped Run / Author / Publish / Process in the Project
   Workspace.
   - **Scrape**: `btwr scrape <project>` — writes a Dropbox lock first
-  - **Dev preview**: `pnpm dev` — long-running, writes a lock
-  - **Open editor (TinaCMS)**: `pnpm dev:editor` — long-running, writes a
-    lock; opens TinaCMS automatically when the local Astro URL is ready;
-    disabled when `package.json` lacks the `dev:editor` script
+  - **Dev preview**: `btwr preview <project>` — long-running, writes a lock
+  - **Open editor (TinaCMS)**: `btwr editor <project>` — long-running, writes a
+    lock; opens TinaCMS automatically when the local Astro URL is ready
   - **Open code editor**: launches the configured editor at the project
     path (e.g. `code`)
   - **Commit & push**: prompts for a message, confirms, then
@@ -112,8 +111,8 @@ temporary folder.
 
 ```
 btwr scrape <project_path>
-pnpm dev                       (cwd: project_path)
-pnpm dev:editor                (cwd: project_path)
+btwr preview <project_path>
+btwr editor <project_path>
 git add -A -- . ':!.bldgtyp/lock.yaml' && git commit -m <msg> && git push
 git status --branch --porcelain=v2
 ```

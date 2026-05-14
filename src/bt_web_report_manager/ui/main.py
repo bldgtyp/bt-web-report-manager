@@ -55,7 +55,6 @@ from bt_web_report_manager.ui.helpers import (
     action_card_states,
     badge_kind,
     badge_tooltip,
-    badges_html,
     commit_disabled_reason,
     format_dt,
     git_label,
@@ -155,7 +154,7 @@ def build_page(state: ManagerState) -> None:
         running_led_set(False)
         refresh_action_state()
         # Schedule the UI update via a timer so the slot context is preserved
-        ui.timer(0, lambda: _post_command_refresh(refresh_on_success and exit_code == 0 and not canceled), once=True)
+        asyncio.create_task(_post_command_refresh(refresh_on_success and exit_code == 0 and not canceled))
 
     def maybe_open_local_browser(line: str) -> None:
         if not preview_browser["armed"] or preview_browser["opened"]:
@@ -181,11 +180,11 @@ def build_page(state: ManagerState) -> None:
         else:
             log_message(f"{label} is ready: {url}")
 
-    def _post_command_refresh(do_refresh: bool) -> None:
+    async def _post_command_refresh(do_refresh: bool) -> None:
         trace_event("ui.main.post_command_refresh", do_refresh=do_refresh)
         running_led_set(False)
         if do_refresh:
-            ui.timer(0, refresh_projects, once=True)
+            await refresh_projects()
         else:
             refresh_action_state()
 
@@ -193,7 +192,7 @@ def build_page(state: ManagerState) -> None:
         trace_event("ui.scrape_feedback.begin", project=project.project_path, slug=project.metadata.slug)
         phpp_filename = project.metadata.phpp_path.name if project.metadata.phpp_path is not None else "configured PHPP"
         trace_event("ui.scrape_feedback.create_dialog", project=project.project_path, phpp_filename=phpp_filename)
-        with screen_container:
+        with modal_host:
             progress_dialog = ui.dialog().props("persistent")
             with progress_dialog, ui.card().classes("min-w-[460px] max-w-[620px]"):
                 title = ui.label(f"Scraping PHPP {phpp_filename}").classes("dialog-title")
@@ -339,6 +338,7 @@ def build_page(state: ManagerState) -> None:
         root_tag = ui.html("").classes("root-tag")
 
     screen_container = ui.element("div").classes("screen-root")
+    modal_host = ui.element("div")
 
     # ---- Helpers ----------------------------------------------------------
     def running_led_set(is_running: bool) -> None:
