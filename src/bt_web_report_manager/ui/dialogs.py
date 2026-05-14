@@ -110,6 +110,27 @@ async def info_dialog(*, title: str, message: str, dismiss_label: str = "Close")
     await dialog
 
 
+async def command_result_dialog(*, title: str, message: str, dismiss_label: str = "Close") -> None:
+    """Display full command output in a readable, selectable modal."""
+    trace_event("ui.command_result.open", title=title, dismiss_label=dismiss_label, message_length=len(message))
+    dialog = ui.dialog()
+    with dialog, ui.card().classes("min-w-[640px] max-w-[900px]"):
+        ui.label(title).classes("dialog-title")
+        ui.textarea(value=message).props("readonly outlined autogrow").classes("w-full").style(
+            "font-family: var(--font-mono); font-size: 12px; line-height: 1.45; " "max-height: 60vh; overflow: auto;"
+        )
+        with ui.row().classes("w-full justify-end"):
+
+            def _close() -> None:
+                trace_event("ui.command_result.close", title=title)
+                dialog.submit(True)
+
+            ui.button(dismiss_label, on_click=_close, color=None).props("flat unelevated no-caps").classes(
+                "action-btn is-primary"
+            )
+    await dialog
+
+
 async def open_settings_dialog(state: ManagerState, on_save: Callable[[], Awaitable[None]] | None = None) -> None:
     """Show the settings dialog; persists on Save and triggers ``on_save``."""
     trace_event("ui.settings.open", settings=state.settings, trace_log_path=trace_log_path())

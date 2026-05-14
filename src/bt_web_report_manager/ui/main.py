@@ -39,7 +39,13 @@ from bt_web_report_manager.locks import (
 from bt_web_report_manager.models import ProjectStatus
 from bt_web_report_manager.projects import discover_projects
 from bt_web_report_manager.settings import save_settings
+from bt_web_report_manager.ui.command_feedback import (
+    ScrapeRunFeedback,
+    scrape_error_summary,
+    scrape_success_summary,
+)
 from bt_web_report_manager.ui.dialogs import (
+    command_result_dialog,
     confirm_dialog,
     open_doctor_dialog,
     open_settings_dialog,
@@ -95,6 +101,7 @@ def build_page(state: ManagerState) -> None:
     led_ref: dict[str, Any] = {}
     log_lines: list[str] = []
     current_screen = {"name": "index"}
+    scrape_feedback: dict[str, Any] = {"run": None, "dialog": None}
 
     def log_message(text: str) -> None:
         trace_event("ui.main.log_message", text=text)
@@ -110,6 +117,9 @@ def build_page(state: ManagerState) -> None:
 
     def on_runner_log(line: str) -> None:
         trace_event("ui.main.runner_log", line=line)
+        active_scrape = scrape_feedback.get("run")
+        if isinstance(active_scrape, ScrapeRunFeedback):
+            active_scrape.output_lines.append(line)
         log_message(line)
 
     def on_runner_done(name: str, exit_code: int, refresh_on_success: bool, canceled: bool) -> None:
@@ -124,6 +134,8 @@ def build_page(state: ManagerState) -> None:
             log_message(f"{name} stopped by user.")
         else:
             log_message(f"{name} finished with exit code {exit_code}.")
+        if name == "Scrape":
+            ui.timer(0, lambda: _finish_scrape_feedback(exit_code=exit_code, canceled=canceled), once=True)
         # Schedule the UI update via a timer so the slot context is preserved
         ui.timer(0, lambda: _post_command_refresh(refresh_on_success and exit_code == 0 and not canceled), once=True)
 
@@ -134,6 +146,64 @@ def build_page(state: ManagerState) -> None:
             ui.timer(0, refresh_projects, once=True)
         else:
             refresh_action_state()
+
+    def _begin_scrape_feedback(project: ProjectStatus, spec: CommandSpec) -> None:
+        trace_event("ui.scrape_feedback.begin", project=project.project_path, slug=project.metadata.slug)
+        progress_dialog = ui.dialog().props("persistent")
+        with progress_dialog, ui.card().classes("min-w-[460px] max-w-[620px]"):
+            ui.label("Scraping PHPP").classes("dialog-title")
+            ui.label(project.metadata.project_title).classes("dialog-subtitle")
+            with ui.row().classes("w-full items-center gap-3 mt-2"):
+                ui.spinner(size="24px")
+                ui.label("Reading the PHPP workbook and writing report data files.").style(
+                    "color: var(--text-2); line-height: 1.5;"
+                )
+            ui.label(f"Output folder: {project.metadata.data_dir}").style(
+                "font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);"
+            )
+        scrape_feedback["run"] = ScrapeRunFeedback(
+            project_title=project.metadata.project_title,
+            project_slug=project.metadata.slug,
+            project_path=project.project_path,
+            data_dir=project.metadata.data_dir,
+            args=spec.args,
+            cwd=spec.cwd,
+        )
+        scrape_feedback["dialog"] = progress_dialog
+        progress_dialog.open()
+
+    async def _finish_scrape_feedback(exit_code: int, canceled: bool) -> None:
+        active_scrape = scrape_feedback.get("run")
+        progress_dialog = scrape_feedback.get("dialog")
+        scrape_feedback["run"] = None
+        scrape_feedback["dialog"] = None
+
+        if progress_dialog is not None:
+            progress_dialog.close()
+        if not isinstance(active_scrape, ScrapeRunFeedback):
+            trace_event("ui.scrape_feedback.finish.no_active_run", exit_code=exit_code, canceled=canceled)
+            return
+
+        if exit_code == 0 and not canceled:
+            trace_event("ui.scrape_feedback.success", project=active_scrape.project_path)
+            await command_result_dialog(
+                title="Scrape PHPP complete",
+                message=scrape_success_summary(active_scrape),
+                dismiss_label="Done",
+            )
+            return
+
+        trace_event(
+            "ui.scrape_feedback.error",
+            project=active_scrape.project_path,
+            exit_code=exit_code,
+            canceled=canceled,
+        )
+        await command_result_dialog(
+            title="Scrape PHPP error",
+            message=scrape_error_summary(active_scrape, exit_code=exit_code, canceled=canceled),
+            dismiss_label="Close",
+        )
 
     runner = ProcessRunner(on_log=on_runner_log, on_done=on_runner_done)
 
@@ -556,11 +626,15 @@ def build_page(state: ManagerState) -> None:
         await refresh_projects(project.project_path)
         return True
 
-    async def _start_command(spec: CommandSpec) -> None:
+    async def _start_command(spec: CommandSpec) -> bool:
         trace_event("ui.command.start_requested", spec=spec)
         running_led_set(True)
         refresh_action_state()
-        await runner.start(spec)
+        started = await runner.start(spec)
+        if not started:
+            running_led_set(False)
+            refresh_action_state()
+        return started
 
     async def run_scrape() -> None:
         project = state.selected_project()
@@ -568,7 +642,11 @@ def build_page(state: ManagerState) -> None:
             trace_event("ui.action.scrape.no_project")
             return
         if await prepare_mutating_action(project):
-            await _start_command(scrape_command(project, state.settings))
+            spec = scrape_command(project, state.settings)
+            _begin_scrape_feedback(project, spec)
+            started = await _start_command(spec)
+            if not started and isinstance(scrape_feedback.get("run"), ScrapeRunFeedback):
+                await _finish_scrape_feedback(exit_code=-1, canceled=False)
 
     async def run_dev_preview() -> None:
         project = state.selected_project()

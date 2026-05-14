@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import signal
 from collections.abc import Callable
 from typing import Awaitable
 
@@ -69,6 +70,7 @@ class ProcessRunner:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 env=env,
+                start_new_session=os.name != "nt",
             )
         except (OSError, FileNotFoundError) as exc:
             trace_exception("runner.start.failed", exc, name=spec.name, args=spec.args, cwd=spec.cwd)
@@ -95,10 +97,7 @@ class ProcessRunner:
         self._stop_requested = True
         trace_event("runner.stop.requested", pid=self._process.pid, spec=self._spec)
         self._on_log("Stopping process...")
-        try:
-            self._process.terminate()
-        except ProcessLookupError:
-            return
+        self._signal_process_tree(signal.SIGTERM)
         asyncio.create_task(self._kill_if_alive())
 
     async def shutdown(self) -> None:
@@ -108,18 +107,14 @@ class ProcessRunner:
             return
         self._stop_requested = True
         trace_event("runner.shutdown.terminating", pid=self._process.pid, spec=self._spec)
+        self._signal_process_tree(signal.SIGTERM)
         try:
-            self._process.terminate()
-        except ProcessLookupError:
-            pass
-        else:
-            try:
-                await asyncio.wait_for(self._process.wait(), timeout=STOP_GRACE_SECONDS)
-            except asyncio.TimeoutError:
-                if self._process.returncode is None:
-                    trace_event("runner.shutdown.kill_after_timeout", pid=self._process.pid)
-                    self._process.kill()
-                    await self._process.wait()
+            await asyncio.wait_for(self._process.wait(), timeout=STOP_GRACE_SECONDS)
+        except asyncio.TimeoutError:
+            if self._process.returncode is None:
+                trace_event("runner.shutdown.kill_after_timeout", pid=self._process.pid)
+                self._signal_process_tree(signal.SIGKILL)
+                await self._process.wait()
         if self._wait_task is not None:
             try:
                 await self._wait_task
@@ -168,10 +163,32 @@ class ProcessRunner:
         if self.is_running and self._process is not None:
             self._on_log("Process did not stop after 2 seconds; killing it.")
             trace_event("runner.kill_after_grace", pid=self._process.pid, spec=self._spec)
+            self._signal_process_tree(signal.SIGKILL)
+
+    def _signal_process_tree(self, sig: signal.Signals) -> None:
+        if self._process is None:
+            return
+        pid = self._process.pid
+        if os.name != "nt":
             try:
-                self._process.kill()
+                os.killpg(pid, sig)
+                trace_event("runner.signal.process_group", pid=pid, signal=sig.name, spec=self._spec)
+                return
             except ProcessLookupError:
-                pass
+                trace_event("runner.signal.process_group_missing", pid=pid, signal=sig.name, spec=self._spec)
+                return
+            except PermissionError as exc:
+                trace_exception(
+                    "runner.signal.process_group_permission", exc, pid=pid, signal=sig.name, spec=self._spec
+                )
+        try:
+            if sig == signal.SIGTERM:
+                self._process.terminate()
+            else:
+                self._process.kill()
+            trace_event("runner.signal.process", pid=pid, signal=sig.name, spec=self._spec)
+        except ProcessLookupError:
+            trace_event("runner.signal.process_missing", pid=pid, signal=sig.name, spec=self._spec)
 
 
 def schedule(coro: Awaitable[None]) -> asyncio.Task[None]:
