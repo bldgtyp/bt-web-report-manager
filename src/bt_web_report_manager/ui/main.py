@@ -70,7 +70,7 @@ from bt_web_report_manager.ui.helpers import (
     suggest_commit_message,
 )
 from bt_web_report_manager.ui.new_project import open_new_project_wizard
-from bt_web_report_manager.ui.preview import local_preview_url_from_log_line, tina_admin_url
+from bt_web_report_manager.ui.preview import editor_browser_urls, local_preview_url_from_log_line
 from bt_web_report_manager.ui.runner import ProcessRunner
 from bt_web_report_manager.ui.state import ManagerState
 from bt_web_report_manager.ui.theme import apply_theme
@@ -163,22 +163,21 @@ def build_page(state: ManagerState) -> None:
         if url is None:
             return
         mode = str(preview_browser["mode"])
-        if mode == "editor":
-            url = tina_admin_url(url)
+        urls = editor_browser_urls(url) if mode == "editor" else (url,)
         preview_browser["opened"] = True
-        trace_event("ui.action.local_browser.open", mode=mode, url=url)
-        try:
-            opened = webbrowser.open(url, new=1)
-        except Exception as exc:
-            trace_exception("ui.action.local_browser.open_failed", exc, mode=mode, url=url)
-            label = "TinaCMS editor" if mode == "editor" else "Dev preview"
-            log_message(f"{label} is ready, but the browser did not open: {url}")
-            return
-        label = "TinaCMS editor" if mode == "editor" else "Dev preview"
-        if opened:
-            log_message(f"Opened {label} in browser: {url}")
-        else:
-            log_message(f"{label} is ready: {url}")
+        labels = ("TinaCMS editor", "Live preview") if mode == "editor" else ("Dev preview",)
+        for label, browser_url in zip(labels, urls, strict=True):
+            trace_event("ui.action.local_browser.open", mode=mode, label=label, url=browser_url)
+            try:
+                opened = webbrowser.open(browser_url, new=1)
+            except Exception as exc:
+                trace_exception("ui.action.local_browser.open_failed", exc, mode=mode, label=label, url=browser_url)
+                log_message(f"{label} is ready, but the browser did not open: {browser_url}")
+                continue
+            if opened:
+                log_message(f"Opened {label} in browser: {browser_url}")
+            else:
+                log_message(f"{label} is ready: {browser_url}")
 
     async def _post_command_refresh(do_refresh: bool) -> None:
         trace_event("ui.main.post_command_refresh", do_refresh=do_refresh)

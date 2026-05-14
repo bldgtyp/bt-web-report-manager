@@ -86,7 +86,7 @@ temporary folder.
   - **Scrape**: `btwr scrape <project>` — writes a Dropbox lock first
   - **Dev preview**: `btwr preview <project>` — long-running, writes a lock
   - **Open editor (TinaCMS)**: `btwr editor <project>` — long-running, writes a
-    lock; opens TinaCMS automatically when the local Astro URL is ready
+    lock; opens TinaCMS and the live preview when the local Astro URL is ready
   - **Open code editor**: launches the configured editor at the project
     path (e.g. `code`)
   - **Commit & push**: prompts for a message, confirms, then

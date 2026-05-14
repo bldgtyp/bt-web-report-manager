@@ -33,3 +33,9 @@ def tina_admin_url(preview_url: str) -> str:
     base_path = parsed.path if parsed.path.endswith("/") else f"{parsed.path}/"
     admin_path = join(base_path, "admin/index.html")
     return parsed._replace(path=admin_path, params="", query="", fragment="").geturl()
+
+
+def editor_browser_urls(preview_url: str) -> tuple[str, str]:
+    """Return the TinaCMS admin URL and matching live-preview URL."""
+
+    return (tina_admin_url(preview_url), preview_url)

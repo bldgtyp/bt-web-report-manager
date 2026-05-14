@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from bt_web_report_manager.ui.preview import local_preview_url_from_log_line, tina_admin_url
+from bt_web_report_manager.ui.preview import editor_browser_urls, local_preview_url_from_log_line, tina_admin_url
 
 
 def test_local_preview_url_from_astro_log_line() -> None:
@@ -29,3 +29,10 @@ def test_tina_admin_url_uses_local_preview_origin() -> None:
 
 def test_tina_admin_url_preserves_nested_base_path() -> None:
     assert tina_admin_url("http://localhost:4321/report/") == "http://localhost:4321/report/admin/index.html"
+
+
+def test_editor_browser_urls_include_admin_and_live_preview() -> None:
+    assert editor_browser_urls("http://localhost:4321/") == (
+        "http://localhost:4321/admin/index.html",
+        "http://localhost:4321/",
+    )
