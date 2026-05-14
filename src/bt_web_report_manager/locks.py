@@ -12,6 +12,7 @@ import yaml
 
 from bt_web_report_manager import __version__
 from bt_web_report_manager.models import LockInfo
+from bt_web_report_manager.trace import trace_event, trace_exception
 
 
 def current_user() -> str:
@@ -29,15 +30,20 @@ def lock_path(project_path: Path) -> Path:
 def read_lock(project_path: Path) -> LockInfo | None:
     path = lock_path(project_path)
     if not path.exists():
+        trace_event("locks.read.missing", project_path=project_path, path=path)
         return None
     try:
         raw = yaml.safe_load(path.read_text()) or {}
-        return _lock_from_mapping(path, raw)
-    except Exception:
+        lock = _lock_from_mapping(path, raw)
+        trace_event("locks.read.done", project_path=project_path, path=path, lock=lock)
+        return lock
+    except Exception as exc:
+        trace_exception("locks.read.failed", exc, project_path=project_path, path=path)
         return LockInfo(path=path, malformed=True)
 
 
 def write_lock(project_path: Path, project_slug: str, ttl_hours: int, now: datetime | None = None) -> LockInfo:
+    trace_event("locks.write.start", project_path=project_path, project_slug=project_slug, ttl_hours=ttl_hours)
     current = now or datetime.now(timezone.utc).astimezone()
     info = LockInfo(
         path=lock_path(project_path),
@@ -50,12 +56,15 @@ def write_lock(project_path: Path, project_slug: str, ttl_hours: int, now: datet
     )
     info.path.parent.mkdir(parents=True, exist_ok=True)
     info.path.write_text(yaml.safe_dump(_lock_to_mapping(info), sort_keys=False))
+    trace_event("locks.write.done", project_path=project_path, path=info.path, lock=info)
     return info
 
 
 def refresh_lock(project_path: Path, ttl_hours: int, now: datetime | None = None) -> LockInfo | None:
+    trace_event("locks.refresh.start", project_path=project_path, ttl_hours=ttl_hours)
     existing = read_lock(project_path)
     if existing is None or existing.malformed:
+        trace_event("locks.refresh.skipped", project_path=project_path, existing=existing)
         return existing
     current = now or datetime.now(timezone.utc).astimezone()
     refreshed = LockInfo(
@@ -68,6 +77,7 @@ def refresh_lock(project_path: Path, ttl_hours: int, now: datetime | None = None
         expires_at=current + timedelta(hours=ttl_hours),
     )
     refreshed.path.write_text(yaml.safe_dump(_lock_to_mapping(refreshed), sort_keys=False))
+    trace_event("locks.refresh.done", project_path=project_path, lock=refreshed)
     return refreshed
 
 
@@ -75,6 +85,9 @@ def release_lock(project_path: Path) -> None:
     path = lock_path(project_path)
     if path.exists():
         path.unlink()
+        trace_event("locks.release.done", project_path=project_path, path=path)
+    else:
+        trace_event("locks.release.missing", project_path=project_path, path=path)
 
 
 def is_current_user_lock(lock: LockInfo) -> bool:
@@ -83,13 +96,20 @@ def is_current_user_lock(lock: LockInfo) -> bool:
 
 def lock_requires_confirmation(lock: LockInfo | None, now: datetime | None = None) -> bool:
     if lock is None:
+        trace_event("locks.requires_confirmation", lock=None, required=False)
         return False
     if lock.malformed:
+        trace_event("locks.requires_confirmation", lock=lock, required=True, reason="malformed")
         return True
     current = now or datetime.now(timezone.utc).astimezone()
     if lock.is_expired(current):
+        trace_event("locks.requires_confirmation", lock=lock, required=False, reason="expired")
         return False
-    return not is_current_user_lock(lock)
+    required = not is_current_user_lock(lock)
+    trace_event(
+        "locks.requires_confirmation", lock=lock, required=required, reason="other_user" if required else "current_user"
+    )
+    return required
 
 
 def lock_warning_message(lock: LockInfo) -> str:

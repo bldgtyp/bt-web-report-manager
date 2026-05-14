@@ -16,6 +16,7 @@ from pathlib import Path
 from nicegui import ui
 
 from bt_web_report_manager.settings import load_settings
+from bt_web_report_manager.trace import configure_trace_logging, trace_event
 from bt_web_report_manager.ui.main import build_page
 from bt_web_report_manager.ui.state import ManagerState
 
@@ -26,8 +27,11 @@ def _pick_port() -> int:
     requested = os.environ.get("BTWR_MANAGER_PORT")
     if requested:
         try:
-            return int(requested)
+            port = int(requested)
+            trace_event("app.pick_port.requested", port=port)
+            return port
         except ValueError:
+            trace_event("app.pick_port.invalid_requested", value=requested)
             pass
     # Prefer DEFAULT_PORT, fall back to an OS-picked free port if taken
     with socket.socket() as sock:
@@ -35,7 +39,10 @@ def _pick_port() -> int:
             sock.bind(("127.0.0.1", DEFAULT_PORT))
         except OSError:
             sock.bind(("127.0.0.1", 0))
-            return int(sock.getsockname()[1])
+            port = int(sock.getsockname()[1])
+            trace_event("app.pick_port.fallback", default_port=DEFAULT_PORT, port=port)
+            return port
+        trace_event("app.pick_port.default", port=DEFAULT_PORT)
         return DEFAULT_PORT
 
 
@@ -62,16 +69,29 @@ def _show_browser_enabled() -> bool:
 
 def run() -> int:
     multiprocessing.freeze_support()
+    trace_path = configure_trace_logging()
+    trace_event(
+        "app.start",
+        executable=sys.executable,
+        cwd=Path.cwd(),
+        argv=sys.argv,
+        trace_path=trace_path,
+        env_path=os.environ.get("PATH", ""),
+        from_app_bundle=_running_from_app_bundle(),
+    )
 
     state = ManagerState(settings=load_settings())
+    trace_event("app.state.initialized", settings=state.settings)
 
     @ui.page("/")
     def index() -> None:
+        trace_event("app.page.render", route="/")
         build_page(state)
 
     native = _native_window_enabled()
     port = _pick_port()
 
+    trace_event("app.run_ui", port=port, native=native, show=_show_browser_enabled())
     ui.run(
         title="bt-web-report Manager",
         favicon="🏠",

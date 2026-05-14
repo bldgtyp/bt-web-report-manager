@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import os
 import re
-import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
 
-from bt_web_report_manager.commands import CommandSpec, run_command
+from bt_web_report_manager.commands import CommandSpec, command_executable, resolve_executable, run_command
 from bt_web_report_manager.models import ManagerSettings
+from bt_web_report_manager.trace import trace_event, trace_exception
 
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -103,6 +103,21 @@ def build_new_project_plan(
     repo_owner: str = "bldgtyp-projects",
     overwrite_existing: bool = False,
 ) -> NewProjectPlan:
+    trace_event(
+        "new_project.plan.build.start",
+        project_title=project_title,
+        slug=slug,
+        client_name=client_name,
+        building_name=building_name,
+        phase=phase,
+        local_folder=local_folder,
+        target_web_path=target_web_path,
+        phpp_path=phpp_path,
+        repo_name=repo_name,
+        production_url=production_url,
+        repo_owner=repo_owner,
+        overwrite_existing=overwrite_existing,
+    )
     plan = NewProjectPlan(
         project_title=project_title.strip(),
         slug=sanitize_slug(slug),
@@ -119,7 +134,9 @@ def build_new_project_plan(
     )
     errors = validate_new_project_plan(plan)
     if errors:
+        trace_event("new_project.plan.build.validation_failed", errors=errors, summary=plan.summary_lines())
         raise ValueError("\n".join(errors))
+    trace_event("new_project.plan.build.done", summary=plan.summary_lines(), relative_phpp_path=plan.relative_phpp_path)
     return plan
 
 
@@ -131,7 +148,11 @@ def clean_path_text(value: str | None) -> str:
     quote_pairs = (("'", "'"), ('"', '"'), ("\u2018", "\u2019"), ("\u201c", "\u201d"))
     for start, end in quote_pairs:
         if len(text) >= 2 and text.startswith(start) and text.endswith(end):
-            return text[1:-1].strip()
+            cleaned = text[1:-1].strip()
+            trace_event("new_project.path.clean.quoted", original=value, cleaned=cleaned)
+            return cleaned
+    if text != value:
+        trace_event("new_project.path.clean.trimmed", original=value, cleaned=text)
     return text
 
 
@@ -142,15 +163,22 @@ def coerce_user_path(value: Path | str) -> Path:
 def sanitize_slug(value: str | None) -> str:
     text = (value or "").strip().lower()
     text = re.sub(r"[^a-z0-9]+", "-", text)
-    return re.sub(r"-+", "-", text).strip("-")
+    slug = re.sub(r"-+", "-", text).strip("-")
+    if slug != (value or ""):
+        trace_event("new_project.slug.sanitize", original=value, slug=slug)
+    return slug
 
 
 def default_slug_from_project_folder(local_folder: Path | str) -> str:
     name = coerce_user_path(local_folder).name
     match = BT_NUMBER_RE.match(name)
     if match:
-        return f"project-{match.group(1)}"
-    return sanitize_slug(name)
+        slug = f"project-{match.group(1)}"
+        trace_event("new_project.slug.default.bt_number", folder=local_folder, folder_name=name, slug=slug)
+        return slug
+    slug = sanitize_slug(name)
+    trace_event("new_project.slug.default.folder_name", folder=local_folder, folder_name=name, slug=slug)
+    return slug
 
 
 def repo_name_from_slug(slug: str) -> str:
@@ -165,11 +193,22 @@ def production_url_from_slug(slug: str) -> str:
 
 def meaningful_existing_items(target: Path) -> list[Path]:
     if not target.exists():
+        trace_event("new_project.existing_items.target_missing", target=target)
         return []
-    return [item for item in target.iterdir() if item.name not in IGNORED_EXISTING_NAMES]
+    children = list(target.iterdir())
+    items = [item for item in children if item.name not in IGNORED_EXISTING_NAMES]
+    ignored = [item.name for item in children if item.name in IGNORED_EXISTING_NAMES]
+    trace_event(
+        "new_project.existing_items.checked",
+        target=target,
+        ignored=ignored,
+        meaningful=[item.name for item in items],
+    )
+    return items
 
 
 def validate_new_project_plan(plan: NewProjectPlan) -> list[str]:
+    trace_event("new_project.plan.validate.start", summary=plan.summary_lines())
     errors: list[str] = []
     if not plan.project_title:
         errors.append("Project title is required.")
@@ -213,6 +252,7 @@ def validate_new_project_plan(plan: NewProjectPlan) -> list[str]:
     expected_host = f"{plan.slug}.bldgtyp.com"
     if parsed.netloc and parsed.netloc != expected_host:
         errors.append(f"Production URL host must be {expected_host}.")
+    trace_event("new_project.plan.validate.done", error_count=len(errors), errors=errors)
     return errors
 
 
@@ -222,8 +262,10 @@ def bootstrap_command_available(settings: ManagerSettings) -> bool:
 
 def bootstrap_command_status(settings: ManagerSettings) -> BootstrapCommandStatus:
     executable = settings.btwr_executable
-    resolved = shutil.which(executable)
+    trace_event("new_project.bootstrap_status.start", executable=executable)
+    resolved = resolve_executable(executable)
     if resolved is None:
+        trace_event("new_project.bootstrap_status.missing", executable=executable)
         return BootstrapCommandStatus(
             available=False,
             executable=executable,
@@ -233,6 +275,7 @@ def bootstrap_command_status(settings: ManagerSettings) -> BootstrapCommandStatu
     try:
         result = run_command([resolved, "new", "--help"], timeout=5)
     except (OSError, subprocess.SubprocessError) as exc:
+        trace_exception("new_project.bootstrap_status.exception", exc, executable=executable, resolved=resolved)
         return BootstrapCommandStatus(
             available=False,
             executable=executable,
@@ -240,6 +283,14 @@ def bootstrap_command_status(settings: ManagerSettings) -> BootstrapCommandStatu
             message=str(exc),
         )
     if result.returncode != 0:
+        trace_event(
+            "new_project.bootstrap_status.bad_exit",
+            executable=executable,
+            resolved=resolved,
+            returncode=result.returncode,
+            stdout=result.stdout,
+            stderr=result.stderr,
+        )
         return BootstrapCommandStatus(
             available=False,
             executable=executable,
@@ -249,6 +300,12 @@ def bootstrap_command_status(settings: ManagerSettings) -> BootstrapCommandStatu
             stderr=result.stderr,
         )
     if "Create a content-only report repo" not in result.stdout and "--slug" not in result.stdout:
+        trace_event(
+            "new_project.bootstrap_status.unexpected_help",
+            executable=executable,
+            resolved=resolved,
+            stdout=result.stdout,
+        )
         return BootstrapCommandStatus(
             available=False,
             executable=executable,
@@ -257,7 +314,7 @@ def bootstrap_command_status(settings: ManagerSettings) -> BootstrapCommandStatu
             stdout=result.stdout,
             stderr=result.stderr,
         )
-    return BootstrapCommandStatus(
+    status = BootstrapCommandStatus(
         available=True,
         executable=executable,
         resolved_path=resolved,
@@ -265,11 +322,13 @@ def bootstrap_command_status(settings: ManagerSettings) -> BootstrapCommandStatu
         stdout=result.stdout,
         stderr=result.stderr,
     )
+    trace_event("new_project.bootstrap_status.available", executable=executable, resolved=resolved)
+    return status
 
 
 def bootstrap_command(plan: NewProjectPlan, settings: ManagerSettings) -> CommandSpec:
     args = [
-        settings.btwr_executable,
+        command_executable(settings.btwr_executable),
         "new",
         str(plan.target_web_path),
         "--slug",
@@ -293,12 +352,14 @@ def bootstrap_command(plan: NewProjectPlan, settings: ManagerSettings) -> Comman
         args.append("--overwrite")
     if settings.renderer_source is not None:
         args.extend(["--renderer-source", str(settings.renderer_source)])
-    return CommandSpec(
+    spec = CommandSpec(
         name="New project",
         args=tuple(args),
         cwd=plan.local_folder,
         refresh_on_success=True,
     )
+    trace_event("new_project.bootstrap_command", args=spec.args, cwd=spec.cwd)
+    return spec
 
 
 def _clean_optional(value: str | None) -> str | None:

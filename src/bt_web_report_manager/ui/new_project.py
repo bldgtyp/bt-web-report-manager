@@ -29,6 +29,7 @@ from bt_web_report_manager.new_project import (
     repo_name_from_slug,
     sanitize_slug,
 )
+from bt_web_report_manager.trace import trace_event, trace_exception, trace_log_path
 from bt_web_report_manager.ui.dialogs import confirm_dialog
 from bt_web_report_manager.ui.runner import ProcessRunner
 from bt_web_report_manager.ui.state import ManagerState
@@ -39,11 +40,13 @@ async def open_new_project_wizard(
     on_close: Callable[[], Awaitable[None]],
 ) -> None:
     """Open the wizard. ``on_close`` is awaited after the dialog dismisses."""
+    trace_event("ui.new_project.open", settings=state.settings, trace_log_path=trace_log_path())
     plan_ref: dict[str, NewProjectPlan | None] = {"plan": None}
 
     dialog = ui.dialog().props("persistent")
 
     def _close() -> None:
+        trace_event("ui.new_project.close.clicked")
         dialog.submit(False)
 
     with dialog, ui.card().classes("min-w-[860px] max-w-[920px]").style("padding: 16px 20px;"):
@@ -60,9 +63,10 @@ async def open_new_project_wizard(
         programmatic_update = {"active": False}
 
         async def _build_plan_from_inputs(*, overwrite_existing: bool = False) -> NewProjectPlan:
+            trace_event("ui.new_project.build_plan_from_inputs.start", overwrite_existing=overwrite_existing)
             _sync_all_defaults()
             phpp_text = clean_path_text(info_fields["phpp_path"].value or "")
-            return build_new_project_plan(
+            plan = build_new_project_plan(
                 project_title=info_fields["project_title"].value or "",
                 slug=info_fields["slug"].value or "",
                 client_name=info_fields["client_name"].value or None,
@@ -76,10 +80,17 @@ async def open_new_project_wizard(
                 production_url=info_fields["production_url"].value or "",
                 overwrite_existing=overwrite_existing,
             )
+            trace_event("ui.new_project.build_plan_from_inputs.done", summary=plan.summary_lines())
+            return plan
 
         async def _confirm_overwrite_if_needed() -> bool:
             target = Path(clean_path_text(info_fields["target_web_path"].value or "")).expanduser()
             existing_items = meaningful_existing_items(target)
+            trace_event(
+                "ui.new_project.overwrite_check",
+                target=target,
+                existing_items=[str(item) for item in existing_items],
+            )
             if not existing_items:
                 return False
             item_lines = "\n".join(f"- {item.name}" for item in existing_items[:8])
@@ -96,11 +107,20 @@ async def open_new_project_wizard(
                 cancel_label="Go back",
                 danger=True,
             )
+            trace_event("ui.new_project.overwrite_answer", target=target, confirmed=ok)
             return ok
 
         def _set_field(name: str, value: str) -> None:
             if (info_fields[name].value or "") == value:
+                trace_event("ui.new_project.field.set.skipped_same", field=name, value=value)
                 return
+            trace_event(
+                "ui.new_project.field.set",
+                field=name,
+                old_value=info_fields[name].value or "",
+                new_value=value,
+                programmatic=True,
+            )
             programmatic_update["active"] = True
             try:
                 info_fields[name].set_value(value)
@@ -110,11 +130,24 @@ async def open_new_project_wizard(
         def _normalize_path_field(name: str) -> str:
             cleaned = clean_path_text(info_fields[name].value or "")
             if cleaned != (info_fields[name].value or ""):
+                trace_event(
+                    "ui.new_project.path.normalized",
+                    field=name,
+                    old_value=info_fields[name].value or "",
+                    new_value=cleaned,
+                )
                 _set_field(name, cleaned)
             return cleaned
 
         def _sync_defaults_from_slug(slug: str) -> None:
             clean_slug = sanitize_slug(slug)
+            trace_event(
+                "ui.new_project.sync_from_slug",
+                input_slug=slug,
+                clean_slug=clean_slug,
+                auto_repo=auto_fields["repo"],
+                auto_url=auto_fields["url"],
+            )
             if auto_fields["repo"]:
                 _set_field("repo_name", repo_name_from_slug(clean_slug))
             if auto_fields["url"]:
@@ -123,8 +156,17 @@ async def open_new_project_wizard(
         def _sync_from_local_folder() -> None:
             local = _normalize_path_field("local_folder")
             if not local:
+                trace_event("ui.new_project.sync_from_local_folder.skipped_empty")
                 return
             target = _normalize_path_field("target_web_path")
+            trace_event(
+                "ui.new_project.sync_from_local_folder",
+                local=local,
+                current_target=target,
+                auto_target=auto_fields["target"],
+                auto_slug=auto_fields["slug"],
+                current_slug=info_fields["slug"].value or "",
+            )
             if auto_fields["target"] or not target:
                 _set_field("target_web_path", str(Path(local).expanduser() / "04_Web"))
             current_slug = sanitize_slug(info_fields["slug"].value or "")
@@ -136,11 +178,17 @@ async def open_new_project_wizard(
                 _sync_defaults_from_slug(current_slug)
 
         def _sync_all_defaults() -> None:
+            trace_event("ui.new_project.sync_all_defaults.start")
             _sync_from_local_folder()
             slug = sanitize_slug(info_fields["slug"].value or "")
             if slug != (info_fields["slug"].value or ""):
                 _set_field("slug", slug)
             _sync_defaults_from_slug(slug)
+            trace_event(
+                "ui.new_project.sync_all_defaults.done",
+                values={name: field.value for name, field in info_fields.items()},
+                auto_fields=auto_fields,
+            )
 
         async def _choose_directory(target_field: str) -> None:
             current = clean_path_text(info_fields[target_field].value or "")
@@ -149,9 +197,16 @@ async def open_new_project_wizard(
                 initial = state.settings.projects_root
             if initial.is_file():
                 initial = initial.parent
+            trace_event(
+                "ui.new_project.picker.folder.open",
+                target_field=target_field,
+                current=current,
+                initial=initial,
+            )
             selected = await _run_macos_picker(
                 f'POSIX path of (choose folder with prompt "Choose project folder" default location POSIX file "{_applescript_escape(str(initial))}")'
             )
+            trace_event("ui.new_project.picker.folder.result", target_field=target_field, selected=selected)
             if selected:
                 _set_field(target_field, selected.rstrip("/"))
                 _sync_from_local_folder()
@@ -164,13 +219,21 @@ async def open_new_project_wizard(
                 initial = initial.parent
             if not initial.exists():
                 initial = state.settings.projects_root
+            trace_event(
+                "ui.new_project.picker.phpp.open",
+                current=current,
+                local=local,
+                initial=initial,
+            )
             selected = await _run_macos_picker(
                 f'POSIX path of (choose file with prompt "Choose PHPP workbook" default location POSIX file "{_applescript_escape(str(initial))}")'
             )
+            trace_event("ui.new_project.picker.phpp.result", selected=selected)
             if selected:
                 _set_field("phpp_path", selected)
 
         async def _choose_local_directory() -> None:
+            trace_event("ui.new_project.local_folder_picker.clicked")
             await _choose_directory("local_folder")
 
         with ui.stepper().props("flat header-nav animated").classes("w-full mt-2") as stepper:
@@ -251,6 +314,7 @@ async def open_new_project_wizard(
 
                     def _on_slug_change() -> None:
                         if not programmatic_update["active"]:
+                            trace_event("ui.new_project.slug.user_changed", value=info_fields["slug"].value or "")
                             auto_fields["slug"] = False
                         slug = sanitize_slug(info_fields["slug"].value or "")
                         if slug != (info_fields["slug"].value or ""):
@@ -259,10 +323,15 @@ async def open_new_project_wizard(
 
                     def _on_local_folder_change() -> None:
                         if not programmatic_update["active"]:
+                            trace_event(
+                                "ui.new_project.local_folder.user_changed",
+                                value=info_fields["local_folder"].value or "",
+                            )
                             _sync_from_local_folder()
 
                     def _mark_manual(name: str) -> None:
                         if not programmatic_update["active"]:
+                            trace_event("ui.new_project.auto_field.disabled", field=name)
                             auto_fields[name] = False
 
                     info_fields["slug"].on("update:model-value", lambda _e: _on_slug_change())
@@ -276,6 +345,11 @@ async def open_new_project_wizard(
                 with ui.stepper_navigation():
 
                     async def _go_preview() -> None:
+                        trace_event(
+                            "ui.new_project.preview.clicked",
+                            values={name: field.value for name, field in info_fields.items()},
+                            auto_fields=auto_fields,
+                        )
                         try:
                             overwrite = await _confirm_overwrite_if_needed()
                             if (
@@ -287,6 +361,7 @@ async def open_new_project_wizard(
                                 return
                             plan_ref["plan"] = await _build_plan_from_inputs(overwrite_existing=overwrite)
                         except ValueError as exc:
+                            trace_exception("ui.new_project.preview.validation_failed", exc)
                             ui.notify(str(exc), type="warning", multi_line=True, timeout=8000)
                             return
                         plan = plan_ref["plan"]
@@ -296,6 +371,7 @@ async def open_new_project_wizard(
                                 for line in plan.summary_lines()
                             )
                         stepper.next()
+                        trace_event("ui.new_project.preview.shown", summary=plan.summary_lines() if plan else None)
 
                     ui.button("Cancel", on_click=_close, color=None).props("flat unelevated no-caps").classes(
                         "action-btn"
@@ -320,7 +396,13 @@ async def open_new_project_wizard(
                 def _prepare_build_log() -> None:
                     plan = plan_ref["plan"]
                     if not build_log or plan is None:
+                        trace_event(
+                            "ui.new_project.prepare_build_log.skipped",
+                            has_log=bool(build_log),
+                            has_plan=plan is not None,
+                        )
                         return
+                    trace_event("ui.new_project.prepare_build_log.start", summary=plan.summary_lines())
                     status = bootstrap_command_status(state.settings)
                     log = build_log[0]
                     log.clear()
@@ -333,8 +415,16 @@ async def open_new_project_wizard(
                         log.push("[next] Click Run bootstrap to create the content-only 04_Web project.")
                     else:
                         log.push("[blocked] Automation cannot run until the configured btwr executable is fixed.")
+                    trace_event(
+                        "ui.new_project.prepare_build_log.done",
+                        available=status.available,
+                        executable=status.executable,
+                        resolved_path=status.resolved_path,
+                        message=status.message,
+                    )
 
                 def _go_build() -> None:
+                    trace_event("ui.new_project.build.clicked")
                     _prepare_build_log()
                     stepper.next()
 
@@ -353,8 +443,10 @@ async def open_new_project_wizard(
                 build_log.append(log)
 
                 async def _start_build() -> None:
+                    trace_event("ui.new_project.run_bootstrap.clicked")
                     plan = plan_ref["plan"]
                     if plan is None:
+                        trace_event("ui.new_project.run_bootstrap.no_plan")
                         log.push("[error] no plan available — go back to step 1 and retry.")
                         return
                     log.clear()
@@ -369,13 +461,16 @@ async def open_new_project_wizard(
                     log.push("")
                     if status.available:
                         spec = bootstrap_command(plan, state.settings)
+                        trace_event("ui.new_project.run_bootstrap.starting_command", args=spec.args, cwd=spec.cwd)
                         log.push(f"[run] $ {' '.join(spec.args)}")
                         finished = asyncio.Event()
 
                         def on_log(line: str) -> None:
+                            trace_event("ui.new_project.run_bootstrap.output", line=line)
                             log.push(line)
 
                         def on_done(_name: str, code: int, _refresh: bool, canceled: bool) -> None:
+                            trace_event("ui.new_project.run_bootstrap.done", name=_name, code=code, canceled=canceled)
                             if canceled:
                                 log.push("[stopped]")
                             else:
@@ -386,6 +481,12 @@ async def open_new_project_wizard(
                         await runner.start(spec)
                         await finished.wait()
                     else:
+                        trace_event(
+                            "ui.new_project.run_bootstrap.blocked",
+                            executable=status.executable,
+                            resolved_path=status.resolved_path,
+                            message=status.message,
+                        )
                         log.push("[blocked] btwr new is not available in the configured CLI.")
                         if status.stdout.strip():
                             log.push("[stdout]")
@@ -413,10 +514,12 @@ async def open_new_project_wizard(
                     )
 
     await dialog
+    trace_event("ui.new_project.closed")
     await on_close()
 
 
 async def _run_macos_picker(script: str) -> str | None:
+    trace_event("ui.macos_picker.start", script=script)
     try:
         result = await asyncio.to_thread(
             subprocess.run,
@@ -426,11 +529,21 @@ async def _run_macos_picker(script: str) -> str | None:
             check=False,
         )
     except OSError as exc:
+        trace_exception("ui.macos_picker.os_error", exc, script=script)
         ui.notify(f"File picker failed: {exc}", type="warning", multi_line=True)
         return None
     if result.returncode != 0:
+        trace_event(
+            "ui.macos_picker.canceled_or_failed",
+            script=script,
+            returncode=result.returncode,
+            stdout=result.stdout,
+            stderr=result.stderr,
+        )
         return None
-    return result.stdout.strip() or None
+    selected = result.stdout.strip() or None
+    trace_event("ui.macos_picker.done", script=script, selected=selected)
+    return selected
 
 
 def _applescript_escape(value: str) -> str:

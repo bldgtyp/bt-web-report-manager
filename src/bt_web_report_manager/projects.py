@@ -14,12 +14,15 @@ import yaml
 from bt_web_report_manager.git_status import read_git_status
 from bt_web_report_manager.locks import read_lock
 from bt_web_report_manager.models import GitStatus, ManagerSettings, ProjectMetadata, ProjectStatus
+from bt_web_report_manager.trace import trace_event, trace_exception
 
 
 def discover_projects(settings: ManagerSettings) -> list[ProjectStatus]:
+    trace_event("projects.discover.start", settings=settings)
     paths: list[Path] = []
     paths.extend(_standard_project_paths(settings.projects_root))
     for extra in settings.extra_project_paths:
+        trace_event("projects.discover.extra_path", path=extra)
         paths.extend(_candidate_paths(extra))
 
     seen: set[Path] = set()
@@ -27,17 +30,27 @@ def discover_projects(settings: ManagerSettings) -> list[ProjectStatus]:
     for path in paths:
         resolved = path.resolve()
         if resolved in seen:
+            trace_event("projects.discover.skip_duplicate", path=path, resolved=resolved)
             continue
         seen.add(resolved)
+        trace_event("projects.discover.read_status", path=path, resolved=resolved)
         statuses.append(read_project_status(resolved, settings))
-    return sorted(statuses, key=lambda item: item.metadata.slug)
+    sorted_statuses = sorted(statuses, key=lambda item: item.metadata.slug)
+    trace_event(
+        "projects.discover.done",
+        count=len(sorted_statuses),
+        projects=[{"slug": status.metadata.slug, "path": status.project_path} for status in sorted_statuses],
+    )
+    return sorted_statuses
 
 
 def read_project_status(project_path: Path, settings: ManagerSettings) -> ProjectStatus:
+    trace_event("projects.status.start", path=project_path)
     warnings: list[str] = []
     try:
         metadata = read_project_metadata(project_path)
     except Exception as exc:
+        trace_exception("projects.status.metadata_failed", exc, path=project_path)
         metadata = ProjectMetadata(
             slug=project_path.name,
             project_title=project_path.name,
@@ -68,10 +81,22 @@ def read_project_status(project_path: Path, settings: ManagerSettings) -> Projec
         phpp_modified_at=phpp_modified_at,
         warnings=tuple(warnings),
     )
-    return _with_badges(status, now=datetime.now(timezone.utc).astimezone())
+    status_with_badges = _with_badges(status, now=datetime.now(timezone.utc).astimezone())
+    trace_event(
+        "projects.status.done",
+        path=project_path,
+        slug=status_with_badges.metadata.slug,
+        warnings=status_with_badges.warnings,
+        badges=status_with_badges.badges,
+        manifest_path=status_with_badges.manifest_path,
+        phpp_path=status_with_badges.metadata.phpp_path,
+    )
+    return status_with_badges
 
 
 def read_project_metadata(project_path: Path) -> ProjectMetadata:
+    project_yaml = project_path / "project.yaml"
+    trace_event("projects.metadata.read", path=project_yaml, exists=project_yaml.exists())
     raw = yaml.safe_load((project_path / "project.yaml").read_text()) or {}
     source_files = raw.get("source_files") or {}
     publishing = raw.get("publishing") or {}
@@ -79,7 +104,7 @@ def read_project_metadata(project_path: Path) -> ProjectMetadata:
     data_raw = source_files.get("data_dir", "data")
     phpp_path = (project_path / phpp_raw).resolve() if phpp_raw else None
     data_dir = (project_path / data_raw).resolve()
-    return ProjectMetadata(
+    metadata = ProjectMetadata(
         slug=str(raw.get("slug") or project_path.name),
         project_title=str(raw.get("project_title") or raw.get("building_name") or project_path.name),
         client_name=_optional_str(raw.get("client_name")),
@@ -89,37 +114,56 @@ def read_project_metadata(project_path: Path) -> ProjectMetadata:
         data_dir=data_dir,
         production_url=_optional_str(publishing.get("production_url")),
     )
+    trace_event("projects.metadata.done", path=project_yaml, metadata=metadata)
+    return metadata
 
 
 def _standard_project_paths(root: Path) -> list[Path]:
     if not root.exists():
+        trace_event("projects.standard_paths.root_missing", root=root)
         return []
+    trace_event("projects.standard_paths.scan_root", root=root)
     paths: list[Path] = []
     for project_dir in root.iterdir():
         if not project_dir.is_dir():
+            trace_event("projects.standard_paths.skip_non_dir", path=project_dir)
             continue
         for child_name in ("04_Web", "04_Web_next"):
             child = project_dir / child_name
+            trace_event(
+                "projects.standard_paths.check_child",
+                child=child,
+                project_yaml=child / "project.yaml",
+                exists=(child / "project.yaml").exists(),
+            )
             if (child / "project.yaml").exists():
                 paths.append(child)
+    trace_event("projects.standard_paths.done", root=root, paths=paths)
     return paths
 
 
 def _candidate_paths(path: Path) -> list[Path]:
     if (path / "project.yaml").exists():
+        trace_event("projects.candidate.direct_project", path=path)
         return [path]
+    trace_event("projects.candidate.scan_as_root", path=path)
     return _standard_project_paths(path)
 
 
 def _read_manifest_generated_at(path: Path, warnings: list[str]) -> datetime | None:
+    trace_event("projects.manifest.read", path=path)
     try:
         raw: dict[str, Any] = json.loads(path.read_text())
         value = raw.get("generated_at")
         if not isinstance(value, str):
             warnings.append("manifest.json has no generated_at timestamp")
+            trace_event("projects.manifest.missing_generated_at", path=path)
             return _mtime(path)
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        generated_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        trace_event("projects.manifest.done", path=path, generated_at=generated_at)
+        return generated_at
     except Exception as exc:
+        trace_exception("projects.manifest.failed", exc, path=path)
         warnings.append(f"manifest.json could not be parsed: {exc}")
         return _mtime(path)
 

@@ -9,6 +9,7 @@ from typing import Any
 import yaml
 
 from bt_web_report_manager.models import ManagerSettings, ToolStatus
+from bt_web_report_manager.trace import trace_event
 
 APP_SUPPORT_ENV = "BTWR_MANAGER_APP_SUPPORT"
 
@@ -16,8 +17,12 @@ APP_SUPPORT_ENV = "BTWR_MANAGER_APP_SUPPORT"
 def app_support_dir() -> Path:
     override = os.environ.get(APP_SUPPORT_ENV)
     if override:
-        return Path(override).expanduser()
-    return Path("~/Library/Application Support/bt-web-report-manager").expanduser()
+        path = Path(override).expanduser()
+        trace_event("settings.app_support_dir", source="env", path=path)
+        return path
+    path = Path("~/Library/Application Support/bt-web-report-manager").expanduser()
+    trace_event("settings.app_support_dir", source="default", path=path)
+    return path
 
 
 def settings_path(base_dir: Path | None = None) -> Path:
@@ -26,16 +31,23 @@ def settings_path(base_dir: Path | None = None) -> Path:
 
 def load_settings(path: Path | None = None) -> ManagerSettings:
     target = path or settings_path()
+    trace_event("settings.load.start", path=target, exists=target.exists())
     if not target.exists():
-        return ManagerSettings(btwr_executable=_default_btwr_executable())
+        settings = ManagerSettings(btwr_executable=_default_btwr_executable())
+        trace_event("settings.load.missing", path=target, settings=_settings_to_mapping(settings))
+        return settings
     raw = yaml.safe_load(target.read_text()) or {}
-    return _settings_from_mapping(raw)
+    settings = _settings_from_mapping(raw)
+    trace_event("settings.load.done", path=target, raw=raw, settings=_settings_to_mapping(settings))
+    return settings
 
 
 def save_settings(settings: ManagerSettings, path: Path | None = None) -> Path:
     target = path or settings_path()
+    trace_event("settings.save.start", path=target, settings=_settings_to_mapping(settings))
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(yaml.safe_dump(_settings_to_mapping(settings), sort_keys=False))
+    trace_event("settings.save.done", path=target)
     return target
 
 
@@ -75,13 +87,16 @@ def _settings_to_mapping(settings: ManagerSettings) -> dict[str, Any]:
 
 def settings_write_status(base_dir: Path | None = None) -> ToolStatus:
     target_dir = base_dir or app_support_dir()
+    trace_event("settings.write_status.start", path=target_dir)
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
         probe = target_dir / ".write-test"
         probe.write_text("ok")
         probe.unlink()
     except OSError as exc:
+        trace_event("settings.write_status.failed", path=target_dir, error=str(exc))
         return ToolStatus("settings", str(target_dir), None, None, False, str(exc))
+    trace_event("settings.write_status.ok", path=target_dir)
     return ToolStatus("settings", str(target_dir), str(target_dir), None, True, "settings folder writable")
 
 
@@ -94,12 +109,30 @@ def _optional_path(value: Any) -> Path | None:
 def _default_btwr_executable() -> str:
     workspace_candidate = workspace_btwr_executable()
     if workspace_candidate is not None:
+        trace_event("settings.default_btwr.workspace", path=workspace_candidate)
         return workspace_candidate
+    trace_event("settings.default_btwr.path_name", executable="btwr")
     return "btwr"
 
 
 def workspace_btwr_executable() -> str | None:
-    workspace_candidate = Path(__file__).resolve().parents[3] / ".venv" / "bin" / "btwr"
-    if workspace_candidate.exists():
-        return str(workspace_candidate)
+    for workspace_root in _workspace_root_candidates():
+        workspace_candidate = workspace_root / ".venv" / "bin" / "btwr"
+        trace_event(
+            "settings.workspace_btwr.candidate",
+            workspace_root=workspace_root,
+            path=workspace_candidate,
+            exists=workspace_candidate.exists(),
+        )
+        if workspace_candidate.exists():
+            trace_event("settings.workspace_btwr.found", path=workspace_candidate)
+            return str(workspace_candidate)
+    trace_event("settings.workspace_btwr.not_found")
     return None
+
+
+def _workspace_root_candidates() -> tuple[Path, ...]:
+    return (
+        Path(__file__).resolve().parents[3],
+        Path("~/Dropbox/bldgtyp-00/00_PH_Tools/bt-web-report").expanduser(),
+    )

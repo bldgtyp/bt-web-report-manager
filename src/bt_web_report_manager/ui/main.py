@@ -65,6 +65,7 @@ from bt_web_report_manager.ui.runner import ProcessRunner
 from bt_web_report_manager.ui.state import ManagerState
 from bt_web_report_manager.ui.theme import apply_theme
 from bt_web_report_manager.ui.updates import run_update_check
+from bt_web_report_manager.trace import trace_event
 
 LOCK_REFRESH_INTERVAL_SECONDS = 60.0
 
@@ -80,6 +81,9 @@ ACTIVE_TOOLTIPS: dict[str, str] = {
 
 def build_page(state: ManagerState) -> None:
     """Render the manager UI bound to ``state``. Call inside ``@ui.page``."""
+    trace_event(
+        "ui.main.build_page", settings=state.settings, project_count=len(state.projects), selected=state.selected_slug
+    )
     apply_theme()
 
     # Mutable refs filled in during construction below
@@ -91,6 +95,7 @@ def build_page(state: ManagerState) -> None:
     current_screen = {"name": "index"}
 
     def log_message(text: str) -> None:
+        trace_event("ui.main.log_message", text=text)
         ts = datetime.now().strftime("%H:%M:%S")
         log_widget = log_ref.get("widget")
         for line in text.splitlines() or [""]:
@@ -102,9 +107,17 @@ def build_page(state: ManagerState) -> None:
                 print(stamped)
 
     def on_runner_log(line: str) -> None:
+        trace_event("ui.main.runner_log", line=line)
         log_message(line)
 
     def on_runner_done(name: str, exit_code: int, refresh_on_success: bool, canceled: bool) -> None:
+        trace_event(
+            "ui.main.runner_done",
+            name=name,
+            exit_code=exit_code,
+            refresh_on_success=refresh_on_success,
+            canceled=canceled,
+        )
         if canceled:
             log_message(f"{name} stopped by user.")
         else:
@@ -113,6 +126,7 @@ def build_page(state: ManagerState) -> None:
         ui.timer(0, lambda: _post_command_refresh(refresh_on_success and exit_code == 0 and not canceled), once=True)
 
     def _post_command_refresh(do_refresh: bool) -> None:
+        trace_event("ui.main.post_command_refresh", do_refresh=do_refresh)
         running_led_set(False)
         if do_refresh:
             ui.timer(0, refresh_projects, once=True)
@@ -130,9 +144,18 @@ def build_page(state: ManagerState) -> None:
                 "color: #a8a29e; font-family: var(--font-mono); font-size: 11px; margin-left: 6px;"
             )
 
+        def _toolbar_click(label: str, handler: Any) -> Any:
+            trace_event("ui.toolbar.clicked", label=label)
+            return handler()
+
         def _tool_button(label: str, icon: str, handler: Any, modifier: str, tip: str) -> None:
             with (
-                ui.button(label, icon=icon, color=None, on_click=handler)
+                ui.button(
+                    label,
+                    icon=icon,
+                    color=None,
+                    on_click=lambda label=label, handler=handler: _toolbar_click(label, handler),
+                )
                 .props("flat unelevated no-caps")
                 .classes(f"tool-btn {modifier}".strip())
             ):
@@ -350,8 +373,20 @@ def build_page(state: ManagerState) -> None:
             _action_button("copy_log", "Copy log", "Copy current action log", "content_copy", on_copy_log, "")
 
     def _action_button(key: str, label: str, detail: str, icon: str, handler: Any, modifier: str = "") -> None:
+        def _click() -> Any:
+            project = state.selected_project()
+            trace_event(
+                "ui.action.clicked",
+                key=key,
+                label=label,
+                selected_project=project.project_path if project is not None else None,
+                selected_slug=project.metadata.slug if project is not None else None,
+                running=runner.is_running,
+            )
+            return handler()
+
         with (
-            ui.button(color=None, on_click=handler)
+            ui.button(color=None, on_click=_click)
             .props("flat unelevated no-caps")
             .classes(f"action-btn action-card-button {modifier}".strip()) as button
         ):
@@ -364,20 +399,33 @@ def build_page(state: ManagerState) -> None:
         btns[key] = button
 
     def render_files_locations(project: ProjectStatus) -> None:
+        def _copy_project_paths() -> None:
+            trace_event("ui.files.copy_paths.clicked", project=project.project_path)
+            copy_project_paths(project)
+
         with ui.element("div").classes("info-panel files-panel"):
             with ui.element("div").classes("panel-header"):
                 ui.label("Files & locations").classes("panel-title")
                 ui.button(
-                    "Copy paths", icon="content_copy", color=None, on_click=lambda: copy_project_paths(project)
+                    "Copy paths",
+                    icon="content_copy",
+                    color=None,
+                    on_click=_copy_project_paths,
                 ).props("flat dense unelevated no-caps").classes("panel-tool")
             for location in project_file_locations(project):
+                def _copy_location_value(value: str = location.value, kind: str = location.kind) -> None:
+                    trace_event("ui.files.copy_value.clicked", kind=kind, value=value)
+                    copy_text(value)
+
                 with ui.element("div").classes("file-row"):
                     ui.label(location.kind).classes(f"file-kind file-kind-{location.kind.lower()}")
                     with ui.element("div").classes("file-main"):
                         ui.label(location.label).classes("file-label")
                         ui.label(location.value).classes("file-value")
                     ui.button(
-                        icon="content_copy", color=None, on_click=lambda loc=location: copy_text(loc.value)
+                        icon="content_copy",
+                        color=None,
+                        on_click=_copy_location_value,
                     ).props("flat dense round").classes("icon-tool")
 
     def render_action_log(project: ProjectStatus) -> None:
@@ -450,6 +498,7 @@ def build_page(state: ManagerState) -> None:
 
     # ---- Actions ----------------------------------------------------------
     async def refresh_projects(preserve_path: Path | None = None) -> None:
+        trace_event("ui.projects.refresh.start", preserve_path=preserve_path, settings=state.settings)
         selected_path = preserve_path
         if selected_path is None:
             current = state.selected_project()
@@ -458,12 +507,21 @@ def build_page(state: ManagerState) -> None:
 
         state.projects = await asyncio.to_thread(discover_projects, state.settings)
         state.select_project_by_path(selected_path)
+        trace_event(
+            "ui.projects.refresh.done",
+            project_count=len(state.projects),
+            selected_path=selected_path,
+            selected_slug=state.selected_slug,
+            projects=[str(project.project_path) for project in state.projects],
+        )
         render_page()
 
     async def prepare_mutating_action(project: ProjectStatus) -> bool:
+        trace_event("ui.mutating_action.prepare.start", project=project.project_path, slug=project.metadata.slug)
         lock = read_lock(project.project_path)
         if lock_requires_confirmation(lock):
             assert lock is not None
+            trace_event("ui.mutating_action.lock_confirmation.required", project=project.project_path, lock=lock)
             ok = await confirm_dialog(
                 title="Project lock",
                 message=lock_warning_message(lock),
@@ -471,15 +529,20 @@ def build_page(state: ManagerState) -> None:
                 danger=True,
             )
             if not ok:
+                trace_event("ui.mutating_action.lock_confirmation.cancelled", project=project.project_path)
                 log_message("Action canceled because the project is locked.")
                 return False
         write_lock(project.project_path, project.metadata.slug, state.settings.lock_ttl_hours)
         state.owned_lock_paths.add(project.project_path)
+        trace_event(
+            "ui.mutating_action.lock_written", project=project.project_path, ttl_hours=state.settings.lock_ttl_hours
+        )
         log_message(f"Lock refreshed for {project.metadata.slug}.")
         await refresh_projects(project.project_path)
         return True
 
     async def _start_command(spec: CommandSpec) -> None:
+        trace_event("ui.command.start_requested", spec=spec)
         running_led_set(True)
         refresh_action_state()
         await runner.start(spec)
@@ -487,6 +550,7 @@ def build_page(state: ManagerState) -> None:
     async def run_scrape() -> None:
         project = state.selected_project()
         if project is None:
+            trace_event("ui.action.scrape.no_project")
             return
         if await prepare_mutating_action(project):
             await _start_command(scrape_command(project, state.settings))
@@ -494,6 +558,7 @@ def build_page(state: ManagerState) -> None:
     async def run_dev_preview() -> None:
         project = state.selected_project()
         if project is None:
+            trace_event("ui.action.dev_preview.no_project")
             return
         if await prepare_mutating_action(project):
             await _start_command(dev_preview_command(project, state.settings))
@@ -501,6 +566,7 @@ def build_page(state: ManagerState) -> None:
     async def run_open_editor() -> None:
         project = state.selected_project()
         if project is None:
+            trace_event("ui.action.open_editor.no_project")
             return
         if await prepare_mutating_action(project):
             await _start_command(open_editor_command(project, state.settings))
@@ -509,15 +575,25 @@ def build_page(state: ManagerState) -> None:
         project = state.selected_project()
         if project is not None:
             await _start_command(open_code_editor_command(project, state.settings))
+        else:
+            trace_event("ui.action.open_code_editor.no_project")
 
     async def run_reveal() -> None:
         project = state.selected_project()
         if project is not None:
             await _start_command(reveal_command(project))
+        else:
+            trace_event("ui.action.reveal.no_project")
 
     async def run_commit_push() -> None:
         project = state.selected_project()
         if project is None or not project.git.is_repo or project.git.dirty_count == 0:
+            trace_event(
+                "ui.action.commit_push.blocked",
+                project=project.project_path if project is not None else None,
+                is_repo=project.git.is_repo if project is not None else None,
+                dirty_count=project.git.dirty_count if project is not None else None,
+            )
             log_message("Commit & push requires a dirty git worktree.")
             return
         message = await prompt_dialog(
@@ -527,6 +603,7 @@ def build_page(state: ManagerState) -> None:
             confirm_label="Next",
         )
         if not message:
+            trace_event("ui.action.commit_push.message_cancelled", project=project.project_path)
             log_message("Commit & push canceled before commit message confirmation.")
             return
         ok = await confirm_dialog(
@@ -539,40 +616,53 @@ def build_page(state: ManagerState) -> None:
             confirm_label="Commit & push",
         )
         if not ok:
+            trace_event("ui.action.commit_push.confirm_cancelled", project=project.project_path, message=message)
             log_message("Commit & push canceled before running git.")
             return
         if await prepare_mutating_action(project):
+            trace_event("ui.action.commit_push.confirmed", project=project.project_path, message=message)
             await _start_command(commit_push_command(project, state.settings, message))
 
     def on_stop() -> None:
+        trace_event("ui.action.stop.clicked")
         runner.stop()
 
     def on_copy_log() -> None:
         text = "\n".join(log_lines)
+        trace_event("ui.action.copy_log.clicked", line_count=len(log_lines))
         try:
             pyperclip.copy(text)
             log_message("Action log copied to clipboard.")
         except pyperclip.PyperclipException as exc:
+            trace_event("ui.action.copy_log.failed", error=str(exc))
             log_message(f"Clipboard unavailable: {exc}")
             ui.notify("Clipboard unavailable on this machine.", type="warning")
 
     async def on_settings() -> None:
+        trace_event("ui.toolbar.settings.open")
+
         async def _after_save() -> None:
+            trace_event("ui.toolbar.settings.after_save")
             log_message("Settings saved and project list refreshed.")
             await refresh_projects()
 
         await open_settings_dialog(state, on_save=_after_save)
 
     async def on_doctor() -> None:
+        trace_event("ui.toolbar.doctor.open")
         await open_doctor_dialog(state)
 
     async def on_new_project() -> None:
+        trace_event("ui.toolbar.new_project.open")
+
         async def _after_close() -> None:
+            trace_event("ui.toolbar.new_project.after_close")
             await refresh_projects()
 
         await open_new_project_wizard(state, on_close=_after_close)
 
     async def on_check_updates() -> None:
+        trace_event("ui.toolbar.check_updates.clicked")
         await run_update_check(state.settings, log_message)
 
     # ---- Lock refresh + shutdown -----------------------------------------

@@ -1,8 +1,11 @@
 from pathlib import Path
 
+from pytest import MonkeyPatch
+
 from bt_web_report_manager.commands import (
     commit_push_command,
     dev_preview_command,
+    resolve_executable,
     open_code_editor_command,
     open_editor_command,
     run_command,
@@ -60,7 +63,7 @@ def test_action_command_specs(tmp_path: Path) -> None:
     assert open_code_editor_command(project, settings).args == ("code-dev", str(tmp_path))
     commit = commit_push_command(project, settings, "Update report")
     assert commit.args[0:2] == ("/bin/sh", "-lc")
-    assert "git add -A -- . ':!.bldgtyp/lock.yaml'" in commit.args[2]
+    assert " add -A -- . ':!.bldgtyp/lock.yaml'" in commit.args[2]
     assert "git commit -m 'Update report'" in commit.args[2]
     assert "git push" in commit.args[2]
     assert commit.refresh_on_success
@@ -99,3 +102,14 @@ def test_commit_push_command_pushes_without_committing_lock_file(tmp_path: Path)
     assert ".bldgtyp/lock.yaml" not in tracked.stdout
     remote_log = run_command(["git", "log", "--oneline", "origin/main", "-1"], cwd=project_path)
     assert "Update report" in remote_log.stdout
+
+
+def test_resolve_executable_uses_manager_search_path(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    executable = bin_dir / "tool"
+    executable.write_text("#!/bin/sh\nexit 0\n")
+    executable.chmod(0o755)
+    monkeypatch.setenv("PATH", str(bin_dir))
+
+    assert resolve_executable("tool") == str(executable)

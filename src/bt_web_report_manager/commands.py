@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import shlex
 import subprocess
@@ -10,7 +11,18 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from bt_web_report_manager.models import ManagerSettings, ProjectStatus, ToolStatus
-from bt_web_report_manager.settings import settings_write_status
+from bt_web_report_manager.settings import settings_write_status, workspace_btwr_executable
+from bt_web_report_manager.trace import trace_event, trace_exception
+
+EXTRA_EXECUTABLE_DIRS = (
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+    "/Applications/Visual Studio Code.app/Contents/Resources/app/bin",
+)
 
 
 @dataclass(frozen=True)
@@ -31,28 +43,101 @@ class CommandResult:
     stderr: str
 
 
+def executable_search_path() -> str:
+    return os.pathsep.join(executable_search_paths())
+
+
+def executable_search_paths() -> tuple[str, ...]:
+    paths: list[str] = []
+    workspace_btwr = workspace_btwr_executable()
+    if workspace_btwr is not None:
+        paths.append(str(Path(workspace_btwr).parent))
+    paths.extend(path for path in os.environ.get("PATH", "").split(os.pathsep) if path)
+    paths.extend(EXTRA_EXECUTABLE_DIRS)
+    unique_paths = tuple(dict.fromkeys(paths))
+    trace_event("commands.executable_search_paths", paths=unique_paths)
+    return unique_paths
+
+
+def resolve_executable(executable: str) -> str | None:
+    executable = executable.strip()
+    if not executable:
+        trace_event("commands.resolve_executable.empty")
+        return None
+    expanded = Path(executable).expanduser()
+    if expanded != Path(expanded.name):
+        ok = expanded.exists() and os.access(expanded, os.X_OK)
+        trace_event(
+            "commands.resolve_executable.explicit",
+            executable=executable,
+            expanded=expanded,
+            exists=expanded.exists(),
+            executable_ok=ok,
+        )
+        return str(expanded) if expanded.exists() else None
+    search_paths = executable_search_paths()
+    for directory in search_paths:
+        candidate = Path(directory) / executable
+        trace_event(
+            "commands.resolve_executable.candidate",
+            executable=executable,
+            candidate=candidate,
+            exists=candidate.exists(),
+            executable_ok=os.access(candidate, os.X_OK),
+        )
+    resolved = shutil.which(executable, path=os.pathsep.join(search_paths))
+    trace_event("commands.resolve_executable.result", executable=executable, resolved=resolved)
+    return resolved
+
+
+def command_executable(executable: str) -> str:
+    resolved = resolve_executable(executable)
+    command = resolved or executable
+    trace_event("commands.command_executable", requested=executable, command=command, resolved=resolved is not None)
+    return command
+
+
 def run_command(args: Sequence[str], cwd: Path | None = None, timeout: float | None = None) -> CommandResult:
-    completed = subprocess.run(args, cwd=cwd, timeout=timeout, text=True, capture_output=True, check=False)
-    return CommandResult(tuple(args), cwd, completed.returncode, completed.stdout, completed.stderr)
+    env = os.environ.copy()
+    env["PATH"] = executable_search_path()
+    trace_event("commands.run.start", args=tuple(args), cwd=cwd, timeout=timeout, path=env["PATH"])
+    completed = subprocess.run(args, cwd=cwd, env=env, timeout=timeout, text=True, capture_output=True, check=False)
+    result = CommandResult(tuple(args), cwd, completed.returncode, completed.stdout, completed.stderr)
+    trace_event(
+        "commands.run.done",
+        args=result.args,
+        cwd=result.cwd,
+        returncode=result.returncode,
+        stdout_preview=result.stdout[-4000:],
+        stderr_preview=result.stderr[-4000:],
+    )
+    return result
 
 
 def tool_status(name: str, executable: str, version_args: Sequence[str] = ("--version",)) -> ToolStatus:
-    resolved = shutil.which(executable)
+    trace_event("commands.tool_status.start", name=name, executable=executable, version_args=tuple(version_args))
+    resolved = resolve_executable(executable)
     if resolved is None:
-        return ToolStatus(name, executable, None, None, False, f"{executable} not found on PATH")
+        trace_event("commands.tool_status.missing", name=name, executable=executable)
+        return ToolStatus(name, executable, None, None, False, f"{executable} not found on Manager PATH")
     try:
         result = run_command([resolved, *version_args], timeout=5)
     except (OSError, subprocess.SubprocessError) as exc:
+        trace_exception("commands.tool_status.exception", exc, name=name, executable=executable, resolved=resolved)
         return ToolStatus(name, executable, resolved, None, False, str(exc))
     output = (result.stdout or result.stderr).strip().splitlines()
     version = output[0] if output else None
     ok = result.returncode == 0
     message = version or ("ok" if ok else f"exit {result.returncode}")
+    trace_event(
+        "commands.tool_status.done", name=name, executable=executable, resolved=resolved, ok=ok, message=message
+    )
     return ToolStatus(name, executable, resolved, version, ok, message)
 
 
 def doctor(settings: ManagerSettings) -> list[ToolStatus]:
-    return [
+    trace_event("commands.doctor.start", settings=settings)
+    statuses = [
         settings_write_status(),
         tool_status("btwr", settings.btwr_executable, ("doctor",)),
         tool_status("pnpm", settings.pnpm_executable),
@@ -60,19 +145,33 @@ def doctor(settings: ManagerSettings) -> list[ToolStatus]:
         tool_status("gh", settings.gh_executable, ("--version",)),
         tool_status("editor", settings.editor_command, ("--version",)),
     ]
+    trace_event(
+        "commands.doctor.done",
+        statuses=[
+            {"name": status.name, "ok": status.ok, "executable": status.executable, "path": status.path}
+            for status in statuses
+        ],
+    )
+    return statuses
 
 
 def scrape_command(project: ProjectStatus, settings: ManagerSettings) -> CommandSpec:
     return CommandSpec(
         name="Scrape",
-        args=(settings.btwr_executable, "scrape", str(project.project_path)),
+        args=(command_executable(settings.btwr_executable), "scrape", str(project.project_path)),
         cwd=project.project_path,
         refresh_on_success=True,
     )
 
 
 def dev_preview_command(project: ProjectStatus, settings: ManagerSettings) -> CommandSpec:
-    args = [settings.btwr_executable, "preview", str(project.project_path), "--pnpm", settings.pnpm_executable]
+    args = [
+        command_executable(settings.btwr_executable),
+        "preview",
+        str(project.project_path),
+        "--pnpm",
+        command_executable(settings.pnpm_executable),
+    ]
     if settings.renderer_source is not None:
         args.extend(["--renderer-source", str(settings.renderer_source)])
     return CommandSpec(
@@ -92,7 +191,13 @@ def reveal_command(project: ProjectStatus) -> CommandSpec:
 
 
 def open_editor_command(project: ProjectStatus, settings: ManagerSettings) -> CommandSpec:
-    args = [settings.btwr_executable, "editor", str(project.project_path), "--pnpm", settings.pnpm_executable]
+    args = [
+        command_executable(settings.btwr_executable),
+        "editor",
+        str(project.project_path),
+        "--pnpm",
+        command_executable(settings.pnpm_executable),
+    ]
     if settings.renderer_source is not None:
         args.extend(["--renderer-source", str(settings.renderer_source)])
     return CommandSpec(
@@ -107,14 +212,14 @@ def open_editor_command(project: ProjectStatus, settings: ManagerSettings) -> Co
 def open_code_editor_command(project: ProjectStatus, settings: ManagerSettings) -> CommandSpec:
     return CommandSpec(
         name="Open code editor",
-        args=(settings.editor_command, str(project.project_path)),
+        args=(command_executable(settings.editor_command), str(project.project_path)),
         refresh_on_success=False,
     )
 
 
 def commit_push_command(project: ProjectStatus, settings: ManagerSettings, message: str) -> CommandSpec:
     quoted_message = shlex.quote(message)
-    quoted_git = shlex.quote(settings.git_executable)
+    quoted_git = shlex.quote(command_executable(settings.git_executable))
     script = (
         f"{quoted_git} add -A -- . ':!.bldgtyp/lock.yaml' "
         f"&& {quoted_git} commit -m {quoted_message} "

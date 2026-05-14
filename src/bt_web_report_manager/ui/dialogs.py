@@ -12,6 +12,7 @@ from nicegui import ui
 from bt_web_report_manager.commands import doctor
 from bt_web_report_manager.models import ManagerSettings, ToolStatus
 from bt_web_report_manager.settings import save_settings, workspace_btwr_executable
+from bt_web_report_manager.trace import trace_event, trace_log_path
 from bt_web_report_manager.ui.state import ManagerState
 
 
@@ -24,6 +25,7 @@ async def confirm_dialog(
     danger: bool = False,
 ) -> bool:
     """Modal confirm. Returns True iff the user clicked confirm."""
+    trace_event("ui.confirm.open", title=title, confirm_label=confirm_label, cancel_label=cancel_label, danger=danger)
     dialog = ui.dialog().props("persistent")
 
     with dialog, ui.card().classes("min-w-[420px] max-w-[560px]"):
@@ -34,9 +36,11 @@ async def confirm_dialog(
         with ui.row().classes("w-full justify-end items-center gap-2 mt-2"):
 
             def _cancel() -> None:
+                trace_event("ui.confirm.cancel", title=title)
                 dialog.submit(False)
 
             def _ok() -> None:
+                trace_event("ui.confirm.ok", title=title)
                 dialog.submit(True)
 
             ui.button(cancel_label, on_click=_cancel, color=None).props("flat unelevated no-caps").classes("action-btn")
@@ -45,6 +49,7 @@ async def confirm_dialog(
             )
 
     answer = await dialog
+    trace_event("ui.confirm.closed", title=title, answer=bool(answer))
     return bool(answer)
 
 
@@ -57,6 +62,7 @@ async def prompt_dialog(
     confirm_label: str = "OK",
 ) -> str | None:
     """Single-line text prompt. Returns None when canceled, the trimmed value otherwise."""
+    trace_event("ui.prompt.open", title=title, label=label, default=default, confirm_label=confirm_label)
     dialog = ui.dialog().props("persistent")
     with dialog, ui.card().classes("min-w-[480px]"):
         ui.label(title).classes("dialog-title")
@@ -66,9 +72,11 @@ async def prompt_dialog(
         with ui.row().classes("w-full justify-end items-center gap-2"):
 
             def _cancel() -> None:
+                trace_event("ui.prompt.cancel", title=title)
                 dialog.submit(None)
 
             def _ok() -> None:
+                trace_event("ui.prompt.ok", title=title, value=input_el.value or "")
                 dialog.submit(input_el.value or "")
 
             ui.button("Cancel", on_click=_cancel, color=None).props("flat unelevated no-caps").classes("action-btn")
@@ -80,11 +88,15 @@ async def prompt_dialog(
 
     answer = await dialog
     if answer is None:
+        trace_event("ui.prompt.closed", title=title, answer=None)
         return None
-    return str(answer).strip() or None
+    value = str(answer).strip() or None
+    trace_event("ui.prompt.closed", title=title, answer=value)
+    return value
 
 
 async def info_dialog(*, title: str, message: str, dismiss_label: str = "Close") -> None:
+    trace_event("ui.info.open", title=title, dismiss_label=dismiss_label)
     dialog = ui.dialog()
     with dialog, ui.card().classes("min-w-[420px]"):
         ui.label(title).classes("dialog-title")
@@ -100,6 +112,7 @@ async def info_dialog(*, title: str, message: str, dismiss_label: str = "Close")
 
 async def open_settings_dialog(state: ManagerState, on_save: Callable[[], Awaitable[None]] | None = None) -> None:
     """Show the settings dialog; persists on Save and triggers ``on_save``."""
+    trace_event("ui.settings.open", settings=state.settings, trace_log_path=trace_log_path())
     settings = state.settings
     dialog = ui.dialog().props("persistent")
 
@@ -213,6 +226,7 @@ async def open_settings_dialog(state: ManagerState, on_save: Callable[[], Awaita
 
     accepted = await dialog
     if not accepted:
+        trace_event("ui.settings.cancel")
         return
 
     extra = tuple(Path(line.strip()).expanduser() for line in (extra_paths.value or "").splitlines() if line.strip())
@@ -230,21 +244,34 @@ async def open_settings_dialog(state: ManagerState, on_save: Callable[[], Awaita
         lock_ttl_hours=int(ttl.value or 4),
     )
     save_settings(state.settings)
+    trace_event("ui.settings.saved", settings=state.settings)
     if on_save is not None:
         await on_save()
 
 
 async def open_doctor_dialog(state: ManagerState) -> None:
     """Run setup checks and display results."""
+    trace_event("ui.doctor.open", settings=state.settings, trace_log_path=trace_log_path())
     dialog = ui.dialog()
 
     statuses: list[ToolStatus] = await asyncio.to_thread(doctor, state.settings)
     workspace_btwr = workspace_btwr_executable()
+    trace_event(
+        "ui.doctor.statuses_loaded",
+        statuses=[
+            {"name": status.name, "ok": status.ok, "path": status.path, "message": status.message}
+            for status in statuses
+        ],
+        workspace_btwr=workspace_btwr,
+    )
 
     with dialog, ui.card().classes("min-w-[760px] max-w-[920px]"):
         ui.label("System Check").classes("dialog-title")
         ui.label("Setup checks. Use the repair action when available, then rerun System Check to confirm.").classes(
             "dialog-subtitle"
+        )
+        ui.label(f"Trace log: {trace_log_path()}").style(
+            "font-family: var(--font-mono); font-size: 11px; color: var(--text-2); word-break: break-all;"
         )
 
         with ui.column().classes("w-full gap-1 mt-2"):
@@ -291,6 +318,7 @@ async def open_doctor_dialog(state: ManagerState) -> None:
                             )
 
                             def _repair_btwr(path: str = repair_path) -> None:
+                                trace_event("ui.doctor.repair_btwr.clicked", path=path)
                                 state.settings = replace(state.settings, btwr_executable=path)
                                 save_settings(state.settings)
                                 ui.notify("Saved workspace btwr path. Rerun System Check to confirm.", type="positive")
@@ -300,13 +328,27 @@ async def open_doctor_dialog(state: ManagerState) -> None:
                                 "flat unelevated no-caps"
                             ).classes("action-btn is-warning").style("align-self: flex-start; margin-top: 4px;")
 
+        async def _open_setup_guide() -> None:
+            trace_event("ui.doctor.setup_guide.clicked")
+            await open_partner_setup_dialog(state)
+
+        def _close_doctor() -> None:
+            trace_event("ui.doctor.close.clicked")
+            dialog.close()
+
         with ui.row().classes("w-full justify-between mt-3"):
-            ui.button("Setup guide", on_click=lambda: open_partner_setup_dialog(state), color=None).props(
+            ui.button(
+                "Setup guide",
+                on_click=_open_setup_guide,
+                color=None,
+            ).props(
                 "flat unelevated no-caps"
             ).classes("action-btn")
-            ui.button("Close", on_click=dialog.close, color=None).props("flat unelevated no-caps").classes(
-                "action-btn is-primary"
-            )
+            ui.button(
+                "Close",
+                on_click=_close_doctor,
+                color=None,
+            ).props("flat unelevated no-caps").classes("action-btn is-primary")
 
     await dialog
 
@@ -316,6 +358,7 @@ def _can_repair_btwr(status: ToolStatus, workspace_btwr: str | None) -> bool:
 
 
 async def open_partner_setup_dialog(state: ManagerState) -> None:
+    trace_event("ui.partner_setup.open", settings=state.settings)
     dialog = ui.dialog()
     with dialog, ui.card().classes("min-w-[760px] max-w-[920px]"):
         ui.label("Partner setup guide").classes("dialog-title")
