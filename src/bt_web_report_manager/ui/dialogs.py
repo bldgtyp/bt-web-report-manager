@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-import tkinter as tk
-from tkinter import filedialog
+import subprocess
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from pathlib import Path
@@ -99,7 +98,13 @@ async def prompt_dialog(
 
 async def choose_directory_dialog(*, title: str, initial_dir: Path | None = None) -> Path | None:
     """Open a native Finder folder picker."""
-    return await asyncio.to_thread(_choose_directory, title, initial_dir)
+    initial = _picker_initial_dir(initial_dir)
+    script = (
+        f'POSIX path of (choose folder with prompt "{_applescript_escape(title)}" '
+        f'default location POSIX file "{_applescript_escape(str(initial))}")'
+    )
+    selected = await _run_macos_picker(script)
+    return Path(selected.rstrip("/")).expanduser() if selected else None
 
 
 async def choose_file_dialog(
@@ -109,43 +114,55 @@ async def choose_file_dialog(
     filetypes: tuple[tuple[str, str], ...] = (("All files", "*"),),
 ) -> Path | None:
     """Open a native Finder file picker."""
-    return await asyncio.to_thread(_choose_file, title, initial_dir, filetypes)
+    del filetypes  # Suffix validation happens after selection, with better project-specific errors.
+    initial = _picker_initial_dir(initial_dir)
+    script = (
+        f'POSIX path of (choose file with prompt "{_applescript_escape(title)}" '
+        f'default location POSIX file "{_applescript_escape(str(initial))}")'
+    )
+    selected = await _run_macos_picker(script)
+    return Path(selected).expanduser() if selected else None
 
 
-def _choose_directory(title: str, initial_dir: Path | None) -> Path | None:
-    trace_event("ui.file_dialog.directory.open", title=title, initial_dir=initial_dir)
-    root = tk.Tk()
-    root.withdraw()
-    root.attributes("-topmost", True)
+def _picker_initial_dir(initial_dir: Path | None) -> Path:
+    initial = (initial_dir or Path.home()).expanduser()
+    if initial.is_file():
+        initial = initial.parent
+    if not initial.exists():
+        initial = Path.home()
+    return initial
+
+
+async def _run_macos_picker(script: str) -> str | None:
+    trace_event("ui.macos_picker.start", script=script)
     try:
-        selected = filedialog.askdirectory(
-            title=title,
-            initialdir=str(initial_dir) if initial_dir is not None else None,
-            mustexist=True,
+        result = await asyncio.to_thread(
+            subprocess.run,
+            ["osascript", "-e", script],
+            text=True,
+            capture_output=True,
+            check=False,
         )
-    finally:
-        root.destroy()
-    path = Path(selected).expanduser() if selected else None
-    trace_event("ui.file_dialog.directory.closed", title=title, selected=path)
-    return path
+    except OSError as exc:
+        trace_event("ui.macos_picker.os_error", script=script, error=str(exc))
+        ui.notify(f"File picker failed: {exc}", type="warning", multi_line=True)
+        return None
+    if result.returncode != 0:
+        trace_event(
+            "ui.macos_picker.canceled_or_failed",
+            script=script,
+            returncode=result.returncode,
+            stdout=result.stdout,
+            stderr=result.stderr,
+        )
+        return None
+    selected = result.stdout.strip() or None
+    trace_event("ui.macos_picker.done", script=script, selected=selected)
+    return selected
 
 
-def _choose_file(title: str, initial_dir: Path | None, filetypes: tuple[tuple[str, str], ...]) -> Path | None:
-    trace_event("ui.file_dialog.file.open", title=title, initial_dir=initial_dir, filetypes=filetypes)
-    root = tk.Tk()
-    root.withdraw()
-    root.attributes("-topmost", True)
-    try:
-        selected = filedialog.askopenfilename(
-            title=title,
-            initialdir=str(initial_dir) if initial_dir is not None else None,
-            filetypes=filetypes,
-        )
-    finally:
-        root.destroy()
-    path = Path(selected).expanduser() if selected else None
-    trace_event("ui.file_dialog.file.closed", title=title, selected=path)
-    return path
+def _applescript_escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
 async def info_dialog(*, title: str, message: str, dismiss_label: str = "Close") -> None:
