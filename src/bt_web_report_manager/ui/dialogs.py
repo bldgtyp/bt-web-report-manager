@@ -1,4 +1,4 @@
-"""Settings / Doctor / confirm / prompt dialog helpers."""
+"""Settings / system-check / confirm / prompt dialog helpers."""
 
 from __future__ import annotations
 
@@ -231,7 +231,7 @@ async def open_doctor_dialog(state: ManagerState) -> None:
     statuses: list[ToolStatus] = await asyncio.to_thread(doctor, state.settings)
 
     with dialog, ui.card().classes("min-w-[760px] max-w-[920px]"):
-        ui.label("Doctor").classes("dialog-title")
+        ui.label("System Check").classes("dialog-title")
         ui.label("Read-only setup checks. Run this after editing Settings to confirm everything resolves.").classes(
             "dialog-subtitle"
         )

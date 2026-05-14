@@ -71,7 +71,7 @@ temporary folder.
 
 ## What the manager does
 
-- **Toolbar**: New project (wizard), Refresh, Settings, Doctor, Check
+- **Toolbar**: New project (wizard), Refresh, Settings, System Check, Check
   updates. Keyboard shortcuts: ⌘N, ⌘R, ⌘,.
 - **Projects table** (left pane): name, slug, client/building, phase, PHPP
   mtime, manifest mtime, git state, lock owner, deploy state, status chips.
@@ -117,5 +117,5 @@ when `btwr new --help` is available. The default `btwr` lookup is plain
 `btwr` on `PATH`; use Settings to point at a different executable when
 testing locally.
 
-Missing tools surface as warnings in the action log and as Doctor
+Missing tools surface as warnings in the action log and as System Check
 findings rather than crashing the GUI.

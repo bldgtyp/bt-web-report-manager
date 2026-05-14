@@ -152,7 +152,7 @@ def build_page(state: ManagerState) -> None:
             "Paths, tools, GitHub release source, lock TTL (Cmd+,).",
         )
         _tool_button(
-            "Doctor",
+            "System Check",
             "medical_services",
             lambda: on_doctor(),
             "",

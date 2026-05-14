@@ -3,7 +3,7 @@
 Manual release path for the macOS bundle. Stays manual until release
 ownership is moved into CI. A local Developer ID Application identity and
 notarization keychain profile are available:
-`Developer ID Application: Edwin May (JPJ3AJ5U8A)` and
+`2D9B3302F8D8203D837B071A3CFAF5CD9FEACF4E` and
 `bt-web-report-manager`.
 
 > **Note (2026-05-13)**: Packaging switched from Briefcase + DMG to
@@ -44,7 +44,7 @@ Then exercise:
 
 1. App opens (browser tab or `BTWR_MANAGER_NATIVE=1` window) and projects
    list populates from Dropbox.
-2. Doctor reports settings-folder write access and all expected tool paths.
+2. System Check reports settings-folder write access and all expected tool paths.
 3. Settings round-trips: change `lock_ttl_hours`, save, reopen, value
    persists.
 4. Check updates logs a result against `bldgtyp/bt-web-report-manager`.

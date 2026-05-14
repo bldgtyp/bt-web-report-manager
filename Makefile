@@ -2,7 +2,7 @@ VERSION := $(shell uv run python -c 'from bt_web_report_manager import __version
 RELEASE_ZIP := dist/bt-web-report-manager-$(VERSION).zip
 RELEASE_TITLE ?= v$(VERSION)
 RELEASE_NOTES ?= release-notes.md
-CODESIGN_IDENTITY ?= Developer ID Application: Edwin May (JPJ3AJ5U8A)
+CODESIGN_IDENTITY ?= 2D9B3302F8D8203D837B071A3CFAF5CD9FEACF4E
 NOTARIZE_PROFILE ?= bt-web-report-manager
 
 .PHONY: build release-build publish-release test
