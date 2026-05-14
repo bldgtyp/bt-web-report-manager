@@ -210,7 +210,7 @@ def build_page(state: ManagerState) -> None:
 
             with ui.element("div").classes("action-grid") as action_section:
                 ui.label("Run").classes("action-group-label")
-                _action_button("scrape", "Scrape", "travel_explore", lambda: run_scrape(), "is-warning")
+                _action_button("scrape", "Scrape PHPP", "travel_explore", lambda: run_scrape(), "is-warning")
                 _action_button("dev", "Dev preview", "play_circle", lambda: run_dev_preview())
 
                 ui.label("Author").classes("action-group-label")
