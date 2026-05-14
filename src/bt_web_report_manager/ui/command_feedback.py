@@ -12,10 +12,15 @@ class ScrapeRunFeedback:
     project_title: str
     project_slug: str
     project_path: Path
+    phpp_path: Path | None
     data_dir: Path
     args: tuple[str, ...]
     cwd: Path | None
     output_lines: list[str] = field(default_factory=list)
+
+    @property
+    def phpp_filename(self) -> str:
+        return self.phpp_path.name if self.phpp_path is not None else "configured PHPP workbook"
 
     @property
     def command(self) -> str:
@@ -32,8 +37,8 @@ class ScrapeRunFeedback:
 
 def scrape_success_summary(feedback: ScrapeRunFeedback) -> str:
     return (
-        "Scrape completed successfully.\n\n"
-        f"Files written to:\n{feedback.data_dir}\n\n"
+        f"Complete. Wrote CSV files to:\n{feedback.data_dir}\n\n"
+        f"PHPP: {feedback.phpp_filename}\n"
         f"Project: {feedback.project_title} ({feedback.project_slug})\n"
         f"Project folder: {feedback.project_path}\n"
         f"Command: {feedback.command}\n"
@@ -47,6 +52,7 @@ def scrape_error_summary(feedback: ScrapeRunFeedback, *, exit_code: int, cancele
     return (
         f"{status}\n\n"
         f"Exit code: {exit_code}\n"
+        f"PHPP: {feedback.phpp_filename}\n"
         f"Project: {feedback.project_title} ({feedback.project_slug})\n"
         f"Project folder: {feedback.project_path}\n"
         f"Expected output folder: {feedback.data_dir}\n"

@@ -935,6 +935,13 @@ html, body, .q-page, .nicegui-content {
   padding: 10px 12px !important;
 }
 
+.screen-root.is-frozen {
+  opacity: 0.48;
+  filter: grayscale(0.9);
+  pointer-events: none;
+  user-select: none;
+}
+
 /* Dialogs */
 .q-dialog__inner > .q-card {
   background: var(--surface) !important;
@@ -960,6 +967,12 @@ html, body, .q-page, .nicegui-content {
   text-transform: uppercase;
   color: var(--text-muted);
   margin-top: 4px;
+}
+.scrape-dialog-message {
+  color: var(--text-2);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* Scrollbars */

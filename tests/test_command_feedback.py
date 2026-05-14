@@ -12,6 +12,7 @@ def test_scrape_success_summary_names_written_folder() -> None:
         project_title="Sample Project",
         project_slug="sample",
         project_path=Path("/tmp/Sample/04_Web"),
+        phpp_path=Path("/tmp/Sample/PHPP.xlsx"),
         data_dir=Path("/tmp/Sample/04_Web/data"),
         args=("btwr", "scrape", "/tmp/Sample/04_Web"),
         cwd=Path("/tmp/Sample/04_Web"),
@@ -19,8 +20,8 @@ def test_scrape_success_summary_names_written_folder() -> None:
 
     summary = scrape_success_summary(feedback)
 
-    assert "Scrape completed successfully." in summary
-    assert "Files written to:\n/tmp/Sample/04_Web/data" in summary
+    assert "Complete. Wrote CSV files to:\n/tmp/Sample/04_Web/data" in summary
+    assert "PHPP: PHPP.xlsx" in summary
     assert "Command: btwr scrape /tmp/Sample/04_Web" in summary
 
 
@@ -29,6 +30,7 @@ def test_scrape_error_summary_includes_exit_code_and_full_output() -> None:
         project_title="Sample Project",
         project_slug="sample",
         project_path=Path("/tmp/Sample/04_Web"),
+        phpp_path=Path("/tmp/Sample/PHPP.xlsx"),
         data_dir=Path("/tmp/Sample/04_Web/data"),
         args=("btwr", "scrape", "/tmp/Sample/04_Web"),
         cwd=Path("/tmp/Sample/04_Web"),
@@ -39,6 +41,7 @@ def test_scrape_error_summary_includes_exit_code_and_full_output() -> None:
 
     assert "Scrape failed." in summary
     assert "Exit code: 2" in summary
+    assert "PHPP: PHPP.xlsx" in summary
     assert "Expected output folder: /tmp/Sample/04_Web/data" in summary
     assert "Reading PHPP\nMissing worksheet: Areas" in summary
 
@@ -48,6 +51,7 @@ def test_scrape_error_summary_handles_no_output() -> None:
         project_title="Sample Project",
         project_slug="sample",
         project_path=Path("/tmp/Sample/04_Web"),
+        phpp_path=None,
         data_dir=Path("/tmp/Sample/04_Web/data"),
         args=("btwr", "scrape", "/tmp/Sample/04_Web"),
         cwd=Path("/tmp/Sample/04_Web"),

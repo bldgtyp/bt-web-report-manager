@@ -46,7 +46,6 @@ from bt_web_report_manager.ui.command_feedback import (
     scrape_success_summary,
 )
 from bt_web_report_manager.ui.dialogs import (
-    command_result_dialog,
     confirm_dialog,
     open_doctor_dialog,
     open_settings_dialog,
@@ -103,7 +102,7 @@ def build_page(state: ManagerState) -> None:
     led_ref: dict[str, Any] = {}
     log_lines: list[str] = []
     current_screen = {"name": "index"}
-    scrape_feedback: dict[str, Any] = {"run": None, "dialog": None}
+    scrape_feedback: dict[str, Any] = {"run": None, "dialog": None, "title": None, "message": None, "spinner": None}
     preview_browser = {"armed": False, "opened": False}
 
     def log_message(text: str) -> None:
@@ -180,48 +179,65 @@ def build_page(state: ManagerState) -> None:
 
     def _begin_scrape_feedback(project: ProjectStatus, spec: CommandSpec) -> None:
         trace_event("ui.scrape_feedback.begin", project=project.project_path, slug=project.metadata.slug)
+        phpp_filename = project.metadata.phpp_path.name if project.metadata.phpp_path is not None else "configured PHPP"
         progress_dialog = ui.dialog().props("persistent")
         with progress_dialog, ui.card().classes("min-w-[460px] max-w-[620px]"):
-            ui.label("Scraping PHPP").classes("dialog-title")
+            title = ui.label(f"Scraping PHPP {phpp_filename}").classes("dialog-title")
             ui.label(project.metadata.project_title).classes("dialog-subtitle")
             with ui.row().classes("w-full items-center gap-3 mt-2"):
-                ui.spinner(size="24px")
-                ui.label("Reading the PHPP workbook and writing report data files.").style(
-                    "color: var(--text-2); line-height: 1.5;"
+                spinner = ui.spinner(size="24px")
+                message = ui.label("Reading the PHPP workbook and writing report data files.").classes(
+                    "scrape-dialog-message"
                 )
             ui.label(f"Output folder: {project.metadata.data_dir}").style(
                 "font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);"
             )
+            with ui.row().classes("w-full justify-end mt-4"):
+                close_button = (
+                    ui.button("Close", on_click=progress_dialog.close, color=None)
+                    .props("flat unelevated no-caps")
+                    .classes("action-btn")
+                )
+                close_button.set_enabled(False)
         scrape_feedback["run"] = ScrapeRunFeedback(
             project_title=project.metadata.project_title,
             project_slug=project.metadata.slug,
             project_path=project.project_path,
+            phpp_path=project.metadata.phpp_path,
             data_dir=project.metadata.data_dir,
             args=spec.args,
             cwd=spec.cwd,
         )
         scrape_feedback["dialog"] = progress_dialog
+        scrape_feedback["title"] = title
+        scrape_feedback["message"] = message
+        scrape_feedback["spinner"] = spinner
+        scrape_feedback["close_button"] = close_button
+        screen_container.classes(add="is-frozen")
         progress_dialog.open()
 
     async def _finish_scrape_feedback(exit_code: int, canceled: bool) -> None:
         active_scrape = scrape_feedback.get("run")
-        progress_dialog = scrape_feedback.get("dialog")
+        title = scrape_feedback.get("title")
+        message = scrape_feedback.get("message")
+        spinner = scrape_feedback.get("spinner")
+        close_button = scrape_feedback.get("close_button")
         scrape_feedback["run"] = None
-        scrape_feedback["dialog"] = None
-
-        if progress_dialog is not None:
-            progress_dialog.close()
+        screen_container.classes(remove="is-frozen")
         if not isinstance(active_scrape, ScrapeRunFeedback):
             trace_event("ui.scrape_feedback.finish.no_active_run", exit_code=exit_code, canceled=canceled)
             return
 
         if exit_code == 0 and not canceled:
             trace_event("ui.scrape_feedback.success", project=active_scrape.project_path)
-            await command_result_dialog(
-                title="Scrape PHPP complete",
-                message=scrape_success_summary(active_scrape),
-                dismiss_label="Done",
-            )
+            if title is not None:
+                title.text = "Scrape PHPP complete"
+            if message is not None:
+                message.text = scrape_success_summary(active_scrape)
+            if spinner is not None:
+                spinner.set_visibility(False)
+            if close_button is not None:
+                close_button.set_enabled(True)
             return
 
         trace_event(
@@ -230,11 +246,14 @@ def build_page(state: ManagerState) -> None:
             exit_code=exit_code,
             canceled=canceled,
         )
-        await command_result_dialog(
-            title="Scrape PHPP error",
-            message=scrape_error_summary(active_scrape, exit_code=exit_code, canceled=canceled),
-            dismiss_label="Close",
-        )
+        if title is not None:
+            title.text = "Scrape PHPP error"
+        if message is not None:
+            message.text = scrape_error_summary(active_scrape, exit_code=exit_code, canceled=canceled)
+        if spinner is not None:
+            spinner.set_visibility(False)
+        if close_button is not None:
+            close_button.set_enabled(True)
 
     runner = ProcessRunner(on_log=on_runner_log, on_done=on_runner_done)
 
@@ -664,7 +683,9 @@ def build_page(state: ManagerState) -> None:
         started = await runner.start(spec)
         if not started:
             running_led_set(False)
-            refresh_action_state()
+        else:
+            running_led_set(True)
+        refresh_action_state()
         return started
 
     async def run_scrape() -> None:
