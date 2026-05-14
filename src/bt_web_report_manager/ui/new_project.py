@@ -24,10 +24,12 @@ from bt_web_report_manager.new_project import (
     build_new_project_plan,
     clean_path_text,
     default_slug_from_project_folder,
+    meaningful_existing_items,
     production_url_from_slug,
     repo_name_from_slug,
     sanitize_slug,
 )
+from bt_web_report_manager.ui.dialogs import confirm_dialog
 from bt_web_report_manager.ui.runner import ProcessRunner
 from bt_web_report_manager.ui.state import ManagerState
 
@@ -57,7 +59,7 @@ async def open_new_project_wizard(
         auto_fields = {"slug": True, "target": True, "repo": True, "url": True}
         programmatic_update = {"active": False}
 
-        async def _build_plan_from_inputs() -> NewProjectPlan:
+        async def _build_plan_from_inputs(*, overwrite_existing: bool = False) -> NewProjectPlan:
             _sync_all_defaults()
             phpp_text = clean_path_text(info_fields["phpp_path"].value or "")
             return build_new_project_plan(
@@ -72,7 +74,29 @@ async def open_new_project_wizard(
                 repo_name=info_fields["repo_name"].value or "",
                 repo_owner=state.settings.project_github_owner,
                 production_url=info_fields["production_url"].value or "",
+                overwrite_existing=overwrite_existing,
             )
+
+        async def _confirm_overwrite_if_needed() -> bool:
+            target = Path(clean_path_text(info_fields["target_web_path"].value or "")).expanduser()
+            existing_items = meaningful_existing_items(target)
+            if not existing_items:
+                return False
+            item_lines = "\n".join(f"- {item.name}" for item in existing_items[:8])
+            if len(existing_items) > 8:
+                item_lines += f"\n- and {len(existing_items) - 8} more"
+            ok = await confirm_dialog(
+                title="Overwrite existing 04_Web contents?",
+                message=(
+                    f"{target} already contains project files:\n\n"
+                    f"{item_lines}\n\n"
+                    "Continuing will replace this folder's contents during bootstrap."
+                ),
+                confirm_label="Overwrite 04_Web",
+                cancel_label="Go back",
+                danger=True,
+            )
+            return ok
 
         def _set_field(name: str, value: str) -> None:
             if (info_fields[name].value or "") == value:
@@ -253,7 +277,15 @@ async def open_new_project_wizard(
 
                     async def _go_preview() -> None:
                         try:
-                            plan_ref["plan"] = await _build_plan_from_inputs()
+                            overwrite = await _confirm_overwrite_if_needed()
+                            if (
+                                meaningful_existing_items(
+                                    Path(clean_path_text(info_fields["target_web_path"].value or "")).expanduser()
+                                )
+                                and not overwrite
+                            ):
+                                return
+                            plan_ref["plan"] = await _build_plan_from_inputs(overwrite_existing=overwrite)
                         except ValueError as exc:
                             ui.notify(str(exc), type="warning", multi_line=True, timeout=8000)
                             return

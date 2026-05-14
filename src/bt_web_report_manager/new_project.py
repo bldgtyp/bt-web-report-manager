@@ -15,6 +15,7 @@ from bt_web_report_manager.models import ManagerSettings
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 BT_NUMBER_RE = re.compile(r"^(\d{4})(?:\D|$)")
+IGNORED_EXISTING_NAMES = {".DS_Store", ".localized", "Icon\r", "desktop.ini", "Thumbs.db"}
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,7 @@ class NewProjectPlan:
     repo_name: str
     repo_owner: str
     production_url: str
+    overwrite_existing: bool = False
 
     @property
     def relative_phpp_path(self) -> str | None:
@@ -50,6 +52,7 @@ class NewProjectPlan:
             f"PHPP workbook: {phpp}",
             f"GitHub repo: {self.repo_owner}/{self.repo_name}",
             f"Production URL: {self.production_url}",
+            f"Overwrite existing 04_Web contents: {'yes' if self.overwrite_existing else 'no'}",
         ]
 
     def manual_checklist(self) -> list[str]:
@@ -63,7 +66,7 @@ class NewProjectPlan:
             "",
             "Manual checklist:",
             f"1. Create or verify project folder: {self.local_folder}",
-            f"2. Create target web folder: {self.target_web_path}",
+            f"2. {'Replace contents of' if self.overwrite_existing else 'Create target web folder'}: {self.target_web_path}",
             f"3. Create private GitHub repo: {self.repo_owner}/{self.repo_name}",
             "4. Run btwr new to create a content-only 04_Web payload.",
             "5. Write or confirm project.yaml with the metadata shown above.",
@@ -87,6 +90,7 @@ def build_new_project_plan(
     repo_name: str,
     production_url: str,
     repo_owner: str = "bldgtyp-projects",
+    overwrite_existing: bool = False,
 ) -> NewProjectPlan:
     plan = NewProjectPlan(
         project_title=project_title.strip(),
@@ -100,6 +104,7 @@ def build_new_project_plan(
         repo_name=repo_name.strip(),
         repo_owner=repo_owner.strip(),
         production_url=production_url.strip(),
+        overwrite_existing=overwrite_existing,
     )
     errors = validate_new_project_plan(plan)
     if errors:
@@ -147,6 +152,12 @@ def production_url_from_slug(slug: str) -> str:
     return f"https://{clean_slug}.bldgtyp.com" if clean_slug else ""
 
 
+def meaningful_existing_items(target: Path) -> list[Path]:
+    if not target.exists():
+        return []
+    return [item for item in target.iterdir() if item.name not in IGNORED_EXISTING_NAMES]
+
+
 def validate_new_project_plan(plan: NewProjectPlan) -> list[str]:
     errors: list[str] = []
     if not plan.project_title:
@@ -167,8 +178,11 @@ def validate_new_project_plan(plan: NewProjectPlan) -> list[str]:
         pass
     elif plan.local_folder != plan.target_web_path.parent:
         errors.append("Target 04_Web path must live inside the local project folder.")
-    if plan.target_web_path.exists() and any(plan.target_web_path.iterdir()):
-        errors.append("Target 04_Web path already exists and is not empty.")
+    existing_items = meaningful_existing_items(plan.target_web_path)
+    if existing_items and not plan.overwrite_existing:
+        item_list = ", ".join(item.name for item in existing_items[:5])
+        suffix = "" if len(existing_items) <= 5 else f", and {len(existing_items) - 5} more"
+        errors.append(f"Target 04_Web path already exists and is not empty: {item_list}{suffix}.")
     if plan.phpp_path is not None:
         if not plan.phpp_path.is_absolute():
             errors.append("PHPP path must be absolute when provided.")
@@ -221,6 +235,8 @@ def bootstrap_command(plan: NewProjectPlan, settings: ManagerSettings) -> Comman
         args.extend(["--phase", plan.phase])
     if plan.phpp_path:
         args.extend(["--phpp", str(plan.phpp_path)])
+    if plan.overwrite_existing:
+        args.append("--overwrite")
     if settings.renderer_source is not None:
         args.extend(["--renderer-source", str(settings.renderer_source)])
     return CommandSpec(
