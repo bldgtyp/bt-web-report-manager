@@ -3,7 +3,15 @@ from pathlib import Path
 import pytest
 
 from bt_web_report_manager.models import ManagerSettings
-from bt_web_report_manager.new_project import bootstrap_command, build_new_project_plan
+from bt_web_report_manager.new_project import (
+    bootstrap_command,
+    build_new_project_plan,
+    clean_path_text,
+    default_slug_from_project_folder,
+    production_url_from_slug,
+    repo_name_from_slug,
+    sanitize_slug,
+)
 
 
 def test_build_new_project_plan_accepts_valid_inputs(tmp_path: Path) -> None:
@@ -37,6 +45,38 @@ def test_build_new_project_plan_accepts_valid_inputs(tmp_path: Path) -> None:
     assert "Do not install Node dependencies" in checklist
 
 
+def test_new_project_helpers_clean_paths_and_derive_bt_number_slug() -> None:
+    folder = "'/Users/em/Dropbox/bldgtyp/2606 29 Vandam St'"
+
+    assert clean_path_text(folder) == "/Users/em/Dropbox/bldgtyp/2606 29 Vandam St"
+    assert default_slug_from_project_folder(folder) == "project-2606"
+    assert sanitize_slug(" Manhattan Townhouse #29! ") == "manhattan-townhouse-29"
+    assert repo_name_from_slug("manhattan-townhouse-29") == "bt-proj-manhattan-townhouse-29"
+    assert production_url_from_slug("manhattan-townhouse-29") == "https://manhattan-townhouse-29.bldgtyp.com"
+
+
+def test_build_new_project_plan_sanitizes_slug_and_quoted_paths(tmp_path: Path) -> None:
+    local_folder = tmp_path / "2606 29 Vandam St"
+    target = local_folder / "04_Web"
+
+    plan = build_new_project_plan(
+        project_title="Project",
+        slug=" Project 2606!! ",
+        client_name=None,
+        building_name=None,
+        phase=None,
+        local_folder=f"'{local_folder}'",
+        target_web_path=f"'{target}'",
+        phpp_path=None,
+        repo_name="bt-proj-project-2606",
+        production_url="https://project-2606.bldgtyp.com",
+    )
+
+    assert plan.slug == "project-2606"
+    assert plan.local_folder == local_folder
+    assert plan.target_web_path == target
+
+
 def test_build_new_project_plan_rejects_invalid_contract(tmp_path: Path) -> None:
     with pytest.raises(ValueError) as exc:
         build_new_project_plan(
@@ -53,9 +93,8 @@ def test_build_new_project_plan_rejects_invalid_contract(tmp_path: Path) -> None
         )
 
     message = str(exc.value)
-    assert "lowercase kebab-case" in message
     assert "must end in 04_Web" in message
-    assert "Repo name must be bt-proj-Bad Slug" in message
+    assert "Repo name must be bt-proj-bad-slug" in message
     assert "https origin URL" in message
 
 

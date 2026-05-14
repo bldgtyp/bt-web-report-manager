@@ -14,6 +14,7 @@ from bt_web_report_manager.models import ManagerSettings
 
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+BT_NUMBER_RE = re.compile(r"^(\d{4})(?:\D|$)")
 
 
 @dataclass(frozen=True)
@@ -80,22 +81,22 @@ def build_new_project_plan(
     client_name: str | None,
     building_name: str | None,
     phase: str | None,
-    local_folder: Path,
-    target_web_path: Path,
-    phpp_path: Path | None,
+    local_folder: Path | str,
+    target_web_path: Path | str,
+    phpp_path: Path | str | None,
     repo_name: str,
     production_url: str,
     repo_owner: str = "bldgtyp-projects",
 ) -> NewProjectPlan:
     plan = NewProjectPlan(
         project_title=project_title.strip(),
-        slug=slug.strip(),
+        slug=sanitize_slug(slug),
         client_name=_clean_optional(client_name),
         building_name=_clean_optional(building_name),
         phase=_clean_optional(phase),
-        local_folder=local_folder.expanduser(),
-        target_web_path=target_web_path.expanduser(),
-        phpp_path=phpp_path.expanduser() if phpp_path is not None else None,
+        local_folder=coerce_user_path(local_folder),
+        target_web_path=coerce_user_path(target_web_path),
+        phpp_path=coerce_user_path(phpp_path) if phpp_path is not None else None,
         repo_name=repo_name.strip(),
         repo_owner=repo_owner.strip(),
         production_url=production_url.strip(),
@@ -104,6 +105,46 @@ def build_new_project_plan(
     if errors:
         raise ValueError("\n".join(errors))
     return plan
+
+
+def clean_path_text(value: str | None) -> str:
+    """Normalize path text pasted from Finder's Copy as Pathname."""
+    if value is None:
+        return ""
+    text = value.strip()
+    quote_pairs = (("'", "'"), ('"', '"'), ("\u2018", "\u2019"), ("\u201c", "\u201d"))
+    for start, end in quote_pairs:
+        if len(text) >= 2 and text.startswith(start) and text.endswith(end):
+            return text[1:-1].strip()
+    return text
+
+
+def coerce_user_path(value: Path | str) -> Path:
+    return Path(clean_path_text(str(value))).expanduser()
+
+
+def sanitize_slug(value: str | None) -> str:
+    text = (value or "").strip().lower()
+    text = re.sub(r"[^a-z0-9]+", "-", text)
+    return re.sub(r"-+", "-", text).strip("-")
+
+
+def default_slug_from_project_folder(local_folder: Path | str) -> str:
+    name = coerce_user_path(local_folder).name
+    match = BT_NUMBER_RE.match(name)
+    if match:
+        return f"project-{match.group(1)}"
+    return sanitize_slug(name)
+
+
+def repo_name_from_slug(slug: str) -> str:
+    clean_slug = sanitize_slug(slug)
+    return f"bt-proj-{clean_slug}" if clean_slug else ""
+
+
+def production_url_from_slug(slug: str) -> str:
+    clean_slug = sanitize_slug(slug)
+    return f"https://{clean_slug}.bldgtyp.com" if clean_slug else ""
 
 
 def validate_new_project_plan(plan: NewProjectPlan) -> list[str]:
@@ -139,8 +180,8 @@ def validate_new_project_plan(plan: NewProjectPlan) -> list[str]:
         errors.append("Repo name can only use letters, numbers, hyphens, underscores, and periods.")
     if not REPO_RE.fullmatch(plan.repo_owner):
         errors.append("Repo owner can only use letters, numbers, hyphens, underscores, and periods.")
-    if plan.repo_name != f"bt-proj-{plan.slug}":
-        errors.append(f"Repo name must be bt-proj-{plan.slug}.")
+    if plan.repo_name != repo_name_from_slug(plan.slug):
+        errors.append(f"Repo name must be {repo_name_from_slug(plan.slug)}.")
     parsed = urlparse(plan.production_url)
     if parsed.scheme != "https" or not parsed.netloc or parsed.path not in ("", "/"):
         errors.append("Production URL must be an https origin URL without a path.")

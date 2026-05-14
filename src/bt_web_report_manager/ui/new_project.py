@@ -10,6 +10,7 @@ sub-command.
 from __future__ import annotations
 
 import asyncio
+import subprocess
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,11 @@ from bt_web_report_manager.new_project import (
     bootstrap_command,
     bootstrap_command_available,
     build_new_project_plan,
+    clean_path_text,
+    default_slug_from_project_folder,
+    production_url_from_slug,
+    repo_name_from_slug,
+    sanitize_slug,
 )
 from bt_web_report_manager.ui.runner import ProcessRunner
 from bt_web_report_manager.ui.state import ManagerState
@@ -42,33 +48,132 @@ async def open_new_project_wizard(
         ui.label("New project").classes("dialog-title")
         ui.label(
             "Three steps: enter project info, confirm the derived plan, then bootstrap. "
-            "Slug fields drive sensible defaults — change any field after if you need to."
+            "Pick the local project folder first; defaults are derived from the BT number when possible."
         ).classes("dialog-subtitle")
 
         info_fields: dict[str, Any] = {}
         preview_md: list[Any] = []
         build_log: list[Any] = []
+        auto_fields = {"slug": True, "target": True, "repo": True, "url": True}
+        programmatic_update = {"active": False}
 
         async def _build_plan_from_inputs() -> NewProjectPlan:
-            phpp_text = (info_fields["phpp_path"].value or "").strip()
+            _sync_all_defaults()
+            phpp_text = clean_path_text(info_fields["phpp_path"].value or "")
             return build_new_project_plan(
                 project_title=info_fields["project_title"].value or "",
                 slug=info_fields["slug"].value or "",
                 client_name=info_fields["client_name"].value or None,
                 building_name=info_fields["building_name"].value or None,
                 phase=info_fields["phase"].value or None,
-                local_folder=Path(info_fields["local_folder"].value or ""),
-                target_web_path=Path(info_fields["target_web_path"].value or ""),
-                phpp_path=Path(phpp_text) if phpp_text else None,
+                local_folder=clean_path_text(info_fields["local_folder"].value or ""),
+                target_web_path=clean_path_text(info_fields["target_web_path"].value or ""),
+                phpp_path=phpp_text if phpp_text else None,
                 repo_name=info_fields["repo_name"].value or "",
                 repo_owner=state.settings.project_github_owner,
                 production_url=info_fields["production_url"].value or "",
             )
 
+        def _set_field(name: str, value: str) -> None:
+            if (info_fields[name].value or "") == value:
+                return
+            programmatic_update["active"] = True
+            try:
+                info_fields[name].set_value(value)
+            finally:
+                programmatic_update["active"] = False
+
+        def _normalize_path_field(name: str) -> str:
+            cleaned = clean_path_text(info_fields[name].value or "")
+            if cleaned != (info_fields[name].value or ""):
+                _set_field(name, cleaned)
+            return cleaned
+
+        def _sync_defaults_from_slug(slug: str) -> None:
+            clean_slug = sanitize_slug(slug)
+            if auto_fields["repo"]:
+                _set_field("repo_name", repo_name_from_slug(clean_slug))
+            if auto_fields["url"]:
+                _set_field("production_url", production_url_from_slug(clean_slug))
+
+        def _sync_from_local_folder() -> None:
+            local = _normalize_path_field("local_folder")
+            if not local:
+                return
+            target = _normalize_path_field("target_web_path")
+            if auto_fields["target"] or not target:
+                _set_field("target_web_path", str(Path(local).expanduser() / "04_Web"))
+            current_slug = sanitize_slug(info_fields["slug"].value or "")
+            if auto_fields["slug"] or not current_slug:
+                default_slug = default_slug_from_project_folder(local)
+                _set_field("slug", default_slug)
+                _sync_defaults_from_slug(default_slug)
+            else:
+                _sync_defaults_from_slug(current_slug)
+
+        def _sync_all_defaults() -> None:
+            _sync_from_local_folder()
+            slug = sanitize_slug(info_fields["slug"].value or "")
+            if slug != (info_fields["slug"].value or ""):
+                _set_field("slug", slug)
+            _sync_defaults_from_slug(slug)
+
+        async def _choose_directory(target_field: str) -> None:
+            current = clean_path_text(info_fields[target_field].value or "")
+            initial = Path(current).expanduser() if current else state.settings.projects_root
+            if not initial.exists():
+                initial = state.settings.projects_root
+            if initial.is_file():
+                initial = initial.parent
+            selected = await _run_macos_picker(
+                f'POSIX path of (choose folder with prompt "Choose project folder" default location POSIX file "{_applescript_escape(str(initial))}")'
+            )
+            if selected:
+                _set_field(target_field, selected.rstrip("/"))
+                _sync_from_local_folder()
+
+        async def _choose_phpp() -> None:
+            current = clean_path_text(info_fields["phpp_path"].value or "")
+            local = clean_path_text(info_fields["local_folder"].value or "")
+            initial = Path(current or local or state.settings.projects_root).expanduser()
+            if initial.is_file():
+                initial = initial.parent
+            if not initial.exists():
+                initial = state.settings.projects_root
+            selected = await _run_macos_picker(
+                f'POSIX path of (choose file with prompt "Choose PHPP workbook" default location POSIX file "{_applescript_escape(str(initial))}")'
+            )
+            if selected:
+                _set_field("phpp_path", selected)
+
+        async def _choose_local_directory() -> None:
+            await _choose_directory("local_folder")
+
         with ui.stepper().props("flat header-nav animated").classes("w-full mt-2") as stepper:
             # ---- Step 1: Info
             with ui.step("info", title="Project info", icon="edit_note"):
                 with ui.column().classes("w-full gap-3 mt-2"):
+                    with ui.row().classes("w-full gap-2 items-center"):
+                        info_fields["local_folder"] = (
+                            ui.input("Local folder", value=str(state.settings.projects_root / "Project Name"))
+                            .props("outlined dense")
+                            .classes("flex-1")
+                            .tooltip(
+                                "Absolute path to the BT project folder. Paste Finder Copy as Pathname values directly; enclosing quotes are stripped."
+                            )
+                        )
+                        ui.button(icon="folder_open", on_click=_choose_local_directory, color=None).props(
+                            "flat unelevated"
+                        ).classes("action-btn icon-only").tooltip("Choose local project folder")
+                    info_fields["target_web_path"] = (
+                        ui.input(
+                            "Target 04_Web path",
+                            value=str(state.settings.projects_root / "Project Name" / "04_Web"),
+                        )
+                        .props("outlined dense")
+                        .classes("w-full")
+                        .tooltip("Web folder created inside the project folder. Must end in 04_Web.")
+                    )
                     with ui.row().classes("w-full gap-3"):
                         info_fields["project_title"] = (
                             ui.input("Project title", placeholder="29 Vandam Street")
@@ -77,10 +182,12 @@ async def open_new_project_wizard(
                             .tooltip("Human-readable project title used in dashboards.")
                         )
                         info_fields["slug"] = (
-                            ui.input("Slug", placeholder="vandam-29")
+                            ui.input("Slug name", placeholder="project-2606")
                             .props("outlined dense")
                             .classes("flex-1")
-                            .tooltip("Lowercase kebab-case identifier. Drives subdomain, repo, and folder names.")
+                            .tooltip(
+                                "Stable lowercase ID for the report. It drives the repo name and production subdomain; default is project-<BT number> from the local folder."
+                            )
                         )
                     with ui.row().classes("w-full gap-3"):
                         info_fields["client_name"] = ui.input("Client").props("outlined dense").classes("flex-1")
@@ -92,27 +199,16 @@ async def open_new_project_wizard(
                             .tooltip("Project phase label, e.g. Design Analysis or PH Certification.")
                         )
 
-                    info_fields["local_folder"] = (
-                        ui.input("Local folder", value=str(state.settings.projects_root / "Project Name"))
-                        .props("outlined dense")
-                        .classes("w-full")
-                        .tooltip("Absolute path to the project folder. The 04_Web/ web folder will live inside it.")
-                    )
-                    info_fields["target_web_path"] = (
-                        ui.input(
-                            "Target 04_Web path",
-                            value=str(state.settings.projects_root / "Project Name" / "04_Web"),
+                    with ui.row().classes("w-full gap-2 items-center"):
+                        info_fields["phpp_path"] = (
+                            ui.input("PHPP workbook", placeholder="Optional absolute path to .xlsx or .xlsm")
+                            .props("outlined dense")
+                            .classes("flex-1")
+                            .tooltip("Optional — set later via project.yaml when the workbook is ready.")
                         )
-                        .props("outlined dense")
-                        .classes("w-full")
-                        .tooltip("Web folder Astro/bt-web-report-template clones into. Must end in 04_Web.")
-                    )
-                    info_fields["phpp_path"] = (
-                        ui.input("PHPP workbook", placeholder="Optional absolute path to .xlsx or .xlsm")
-                        .props("outlined dense")
-                        .classes("w-full")
-                        .tooltip("Optional — set later via project.yaml when the workbook is ready.")
-                    )
+                        ui.button(icon="description", on_click=_choose_phpp, color=None).props(
+                            "flat unelevated"
+                        ).classes("action-btn icon-only").tooltip("Choose PHPP workbook")
                     with ui.row().classes("w-full gap-3"):
                         info_fields["repo_name"] = (
                             ui.input("Repo name")
@@ -129,25 +225,29 @@ async def open_new_project_wizard(
                             .tooltip("Final Cloudflare Pages origin. https://<slug>.bldgtyp.com")
                         )
 
-                    def _sync_defaults() -> None:
-                        slug = (info_fields["slug"].value or "").strip()
-                        repo_val = (info_fields["repo_name"].value or "").strip()
-                        if not repo_val or repo_val.startswith("bt-proj-"):
-                            info_fields["repo_name"].set_value(f"bt-proj-{slug}" if slug else "")
-                        url_val = (info_fields["production_url"].value or "").strip()
-                        if not url_val or url_val.endswith(".bldgtyp.com"):
-                            info_fields["production_url"].set_value(f"https://{slug}.bldgtyp.com" if slug else "")
+                    def _on_slug_change() -> None:
+                        if not programmatic_update["active"]:
+                            auto_fields["slug"] = False
+                        slug = sanitize_slug(info_fields["slug"].value or "")
+                        if slug != (info_fields["slug"].value or ""):
+                            _set_field("slug", slug)
+                        _sync_defaults_from_slug(slug)
 
-                    def _sync_target() -> None:
-                        local = (info_fields["local_folder"].value or "").strip()
-                        target = (info_fields["target_web_path"].value or "").strip()
-                        if target.endswith("/04_Web") or not target:
-                            info_fields["target_web_path"].set_value(
-                                str(Path(local).expanduser() / "04_Web") if local else ""
-                            )
+                    def _on_local_folder_change() -> None:
+                        if not programmatic_update["active"]:
+                            _sync_from_local_folder()
 
-                    info_fields["slug"].on("update:model-value", lambda _e: _sync_defaults())
-                    info_fields["local_folder"].on("update:model-value", lambda _e: _sync_target())
+                    def _mark_manual(name: str) -> None:
+                        if not programmatic_update["active"]:
+                            auto_fields[name] = False
+
+                    info_fields["slug"].on("update:model-value", lambda _e: _on_slug_change())
+                    info_fields["local_folder"].on("update:model-value", lambda _e: _on_local_folder_change())
+                    info_fields["target_web_path"].on("update:model-value", lambda _e: _mark_manual("target"))
+                    info_fields["repo_name"].on("update:model-value", lambda _e: _mark_manual("repo"))
+                    info_fields["production_url"].on("update:model-value", lambda _e: _mark_manual("url"))
+                    info_fields["phpp_path"].on("update:model-value", lambda _e: _normalize_path_field("phpp_path"))
+                    _sync_from_local_folder()
 
                 with ui.stepper_navigation():
 
@@ -245,3 +345,24 @@ async def open_new_project_wizard(
 
     await dialog
     await on_close()
+
+
+async def _run_macos_picker(script: str) -> str | None:
+    try:
+        result = await asyncio.to_thread(
+            subprocess.run,
+            ["osascript", "-e", script],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except OSError as exc:
+        ui.notify(f"File picker failed: {exc}", type="warning", multi_line=True)
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def _applescript_escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
