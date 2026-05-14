@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from bt_web_report_manager.commands import CommandSpec
-from bt_web_report_manager.ui.runner import ProcessRunner
+from bt_web_report_manager.ui.runner import PNPM_STOP_LIFECYCLE_MESSAGE, ProcessRunner, normalize_runner_output
 
 
 @dataclass
@@ -29,6 +29,11 @@ def _make_runner() -> tuple[ProcessRunner, RunnerEvents]:
 
     runner = ProcessRunner(on_log=events.log.append, on_done=on_done)
     return runner, events
+
+
+def test_normalize_runner_output_marks_pnpm_lifecycle_as_stop_noise() -> None:
+    assert normalize_runner_output("ELIFECYCLE Command failed.", stop_requested=True) == PNPM_STOP_LIFECYCLE_MESSAGE
+    assert normalize_runner_output("ELIFECYCLE Command failed.", stop_requested=False) == "ELIFECYCLE Command failed."
 
 
 @pytest.mark.asyncio

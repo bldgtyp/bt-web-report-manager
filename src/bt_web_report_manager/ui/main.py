@@ -8,6 +8,7 @@ releasing locks. All UI state lives in ``ManagerState`` (in ``state.py``).
 from __future__ import annotations
 
 import asyncio
+import webbrowser
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -69,11 +70,12 @@ from bt_web_report_manager.ui.helpers import (
     suggest_commit_message,
 )
 from bt_web_report_manager.ui.new_project import open_new_project_wizard
+from bt_web_report_manager.ui.preview import local_preview_url_from_log_line
 from bt_web_report_manager.ui.runner import ProcessRunner
 from bt_web_report_manager.ui.state import ManagerState
 from bt_web_report_manager.ui.theme import apply_theme
 from bt_web_report_manager.ui.updates import run_update_check
-from bt_web_report_manager.trace import trace_event
+from bt_web_report_manager.trace import trace_event, trace_exception
 
 LOCK_REFRESH_INTERVAL_SECONDS = 60.0
 
@@ -102,6 +104,7 @@ def build_page(state: ManagerState) -> None:
     log_lines: list[str] = []
     current_screen = {"name": "index"}
     scrape_feedback: dict[str, Any] = {"run": None, "dialog": None}
+    preview_browser = {"armed": False, "opened": False}
 
     def log_message(text: str) -> None:
         trace_event("ui.main.log_message", text=text)
@@ -121,6 +124,7 @@ def build_page(state: ManagerState) -> None:
         if isinstance(active_scrape, ScrapeRunFeedback):
             active_scrape.output_lines.append(line)
         log_message(line)
+        maybe_open_dev_preview(line)
 
     def on_runner_done(name: str, exit_code: int, refresh_on_success: bool, canceled: bool) -> None:
         trace_event(
@@ -134,10 +138,37 @@ def build_page(state: ManagerState) -> None:
             log_message(f"{name} stopped by user.")
         else:
             log_message(f"{name} finished with exit code {exit_code}.")
+        if name == "Dev preview":
+            preview_browser["armed"] = False
+            preview_browser["opened"] = False
         if name == "Scrape":
             ui.timer(0, lambda: _finish_scrape_feedback(exit_code=exit_code, canceled=canceled), once=True)
+        # Apply idle state immediately. The timer below still owns any async
+        # refresh work, but buttons should not remain disabled if that callback
+        # is delayed by the browser/client event cycle.
+        running_led_set(False)
+        refresh_action_state()
         # Schedule the UI update via a timer so the slot context is preserved
         ui.timer(0, lambda: _post_command_refresh(refresh_on_success and exit_code == 0 and not canceled), once=True)
+
+    def maybe_open_dev_preview(line: str) -> None:
+        if not preview_browser["armed"] or preview_browser["opened"]:
+            return
+        url = local_preview_url_from_log_line(line)
+        if url is None:
+            return
+        preview_browser["opened"] = True
+        trace_event("ui.action.dev_preview.open_browser", url=url)
+        try:
+            opened = webbrowser.open(url, new=1)
+        except Exception as exc:
+            trace_exception("ui.action.dev_preview.open_browser_failed", exc, url=url)
+            log_message(f"Dev preview is ready, but the browser did not open: {url}")
+            return
+        if opened:
+            log_message(f"Opened dev preview in browser: {url}")
+        else:
+            log_message(f"Dev preview is ready: {url}")
 
     def _post_command_refresh(do_refresh: bool) -> None:
         trace_event("ui.main.post_command_refresh", do_refresh=do_refresh)
@@ -654,7 +685,12 @@ def build_page(state: ManagerState) -> None:
             trace_event("ui.action.dev_preview.no_project")
             return
         if await prepare_mutating_action(project):
-            await _start_command(dev_preview_command(project, state.settings))
+            preview_browser["armed"] = True
+            preview_browser["opened"] = False
+            started = await _start_command(dev_preview_command(project, state.settings))
+            if not started:
+                preview_browser["armed"] = False
+                preview_browser["opened"] = False
 
     async def run_open_editor() -> None:
         project = state.selected_project()

@@ -22,6 +22,15 @@ DoneCallback = Callable[[str, int, bool, bool], None]
 """``(command_name, exit_code, refresh_on_success, canceled)``"""
 
 STOP_GRACE_SECONDS = 2.0
+PNPM_STOP_LIFECYCLE_MESSAGE = "[stop] pnpm reported ELIFECYCLE while stopping; treating it as expected shutdown noise."
+
+
+def normalize_runner_output(line: str, *, stop_requested: bool) -> str | None:
+    """Normalize noisy subprocess output before it reaches the UI log."""
+
+    if stop_requested and "ELIFECYCLE" in line and "Command failed" in line:
+        return PNPM_STOP_LIFECYCLE_MESSAGE
+    return line
 
 
 class ProcessRunner:
@@ -127,8 +136,10 @@ class ProcessRunner:
             async for raw in process.stdout:
                 text = raw.decode(errors="replace").rstrip()
                 if text:
-                    trace_event("runner.output", spec=self._spec, line=text)
-                    self._on_log(text)
+                    normalized = normalize_runner_output(text, stop_requested=self._stop_requested)
+                    trace_event("runner.output", spec=self._spec, line=text, normalized=normalized)
+                    if normalized is not None:
+                        self._on_log(normalized)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
