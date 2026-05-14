@@ -48,6 +48,9 @@ Then exercise:
 3. Settings round-trips: change `lock_ttl_hours`, save, reopen, value
    persists.
 4. Check updates logs a result against `bldgtyp/bt-web-report-manager`.
+   When an update is available, Install and relaunch shows a blocking
+   download/verify progress dialog, closes the old window/tab, swaps the
+   app, and opens the new version.
 5. Vandam Dev preview starts and Stop kills the dev server cleanly.
 6. Commit & push only against a disposable repo or controlled branch.
 

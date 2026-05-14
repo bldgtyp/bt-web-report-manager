@@ -1,7 +1,11 @@
 import pytest
 
 from bt_web_report_manager.updates import check_for_updates, compare_versions, latest_release
-from bt_web_report_manager.ui.updates import RETIRE_BROWSER_PAGE_SCRIPT
+from bt_web_report_manager.ui.updates import (
+    RETIRE_BROWSER_PAGE_SCRIPT,
+    UPDATE_PROGRESS_INITIAL_MESSAGE,
+    UPDATE_PROGRESS_INSTALLING_MESSAGE,
+)
 
 
 @pytest.mark.parametrize(
@@ -133,6 +137,12 @@ def test_update_install_retire_script_closes_or_blanks_old_browser_tab() -> None
     assert "window.close()" in RETIRE_BROWSER_PAGE_SCRIPT
     assert "about:blank" in RETIRE_BROWSER_PAGE_SCRIPT
     assert "This tab can be closed" in RETIRE_BROWSER_PAGE_SCRIPT
+
+
+def test_update_install_progress_copy_is_explicit() -> None:
+    assert "Downloading" in UPDATE_PROGRESS_INITIAL_MESSAGE
+    assert "verifying" in UPDATE_PROGRESS_INITIAL_MESSAGE
+    assert "relaunching" in UPDATE_PROGRESS_INSTALLING_MESSAGE
 
 
 class _FakeResponse:

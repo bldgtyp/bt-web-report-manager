@@ -181,7 +181,7 @@ def build_page(state: ManagerState) -> None:
         # ----- Right pane: detail + actions + log
         with ui.element("div").classes("pane pane-right"):
             with ui.element("div").classes("pane-header"):
-                ui.label("Selected project").classes("pane-title")
+                ui.label("Active project").classes("pane-title")
                 detail_kicker = ui.label("").classes("pane-meta")
 
             with ui.element("div").classes("detail-section"):

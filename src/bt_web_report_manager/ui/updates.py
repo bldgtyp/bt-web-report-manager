@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import webbrowser
 from collections.abc import Callable
+from typing import Any
 
 from nicegui import app, ui
 
@@ -33,6 +34,9 @@ setTimeout(() => {
   setTimeout(() => window.location.replace('about:blank'), 250);
 }, 100);
 """
+
+UPDATE_PROGRESS_INITIAL_MESSAGE = "Downloading and verifying release asset..."
+UPDATE_PROGRESS_INSTALLING_MESSAGE = "Installing and relaunching..."
 
 
 async def run_update_check(settings: ManagerSettings, log: Callable[[str], None]) -> None:
@@ -111,6 +115,7 @@ async def _download_and_install(release: ReleaseInfo, log: Callable[[str], None]
         webbrowser.open(release.asset_url)
         return
 
+    progress_dialog, progress_message = _open_update_progress_dialog(release.version)
     try:
         log(f"Downloading update asset: {release.asset_url}")
         prepared = await asyncio.to_thread(prepare_update, release.asset_url)
@@ -123,19 +128,38 @@ async def _download_and_install(release: ReleaseInfo, log: Callable[[str], None]
             cleanup_dir=prepared.temp_dir,
         )
     except UpdateInstallError as exc:
+        progress_dialog.close()
         log(f"Update install failed: {exc}")
         ui.notify("Update install failed. Open the release page and install manually.", type="negative")
         return
     except Exception as exc:
+        progress_dialog.close()
         log(f"Update install failed: {exc}")
         ui.notify("Update install failed. Open the release page and install manually.", type="negative")
         return
 
     log(f"Update helper started: {helper_path}")
-    ui.notify("Manager will quit, install the update, and relaunch.", type="positive")
+    _set_update_progress_message(progress_message, UPDATE_PROGRESS_INSTALLING_MESSAGE)
     await _retire_current_browser_page(log)
     await asyncio.sleep(0.3)
     app.shutdown()
+
+
+def _open_update_progress_dialog(version: str) -> tuple[Any, Any]:
+    dialog = ui.dialog().props("persistent")
+    with dialog, ui.card().classes("min-w-[420px]"):
+        ui.label(f"Downloading update {version}").classes("dialog-title")
+        ui.label("Preparing the new app. The manager will relaunch automatically.").classes("dialog-subtitle")
+        ui.linear_progress().props("indeterminate rounded").style("margin-top: 14px;")
+        progress_message = (
+            ui.label(UPDATE_PROGRESS_INITIAL_MESSAGE).classes("dialog-section-label").style("margin-top: 14px;")
+        )
+    dialog.open()
+    return dialog, progress_message
+
+
+def _set_update_progress_message(progress_message: Any, message: str) -> None:
+    progress_message.text = message
 
 
 async def _retire_current_browser_page(log: Callable[[str], None]) -> None:
