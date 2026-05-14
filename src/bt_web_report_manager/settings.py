@@ -27,7 +27,7 @@ def settings_path(base_dir: Path | None = None) -> Path:
 def load_settings(path: Path | None = None) -> ManagerSettings:
     target = path or settings_path()
     if not target.exists():
-        return ManagerSettings()
+        return ManagerSettings(btwr_executable=_default_btwr_executable())
     raw = yaml.safe_load(target.read_text()) or {}
     return _settings_from_mapping(raw)
 
@@ -43,7 +43,7 @@ def _settings_from_mapping(raw: dict[str, Any]) -> ManagerSettings:
     return ManagerSettings(
         projects_root=Path(raw.get("projects_root", ManagerSettings.projects_root)).expanduser(),
         extra_project_paths=tuple(Path(item).expanduser() for item in raw.get("extra_project_paths", [])),
-        btwr_executable=str(raw.get("btwr_executable", "btwr")),
+        btwr_executable=str(raw.get("btwr_executable") or _default_btwr_executable()),
         pnpm_executable=str(raw.get("pnpm_executable", "pnpm")),
         renderer_source=_optional_path(raw.get("renderer_source")),
         git_executable=str(raw.get("git_executable", "git")),
@@ -89,3 +89,17 @@ def _optional_path(value: Any) -> Path | None:
     if value in (None, ""):
         return None
     return Path(value).expanduser()
+
+
+def _default_btwr_executable() -> str:
+    workspace_candidate = workspace_btwr_executable()
+    if workspace_candidate is not None:
+        return workspace_candidate
+    return "btwr"
+
+
+def workspace_btwr_executable() -> str | None:
+    workspace_candidate = Path(__file__).resolve().parents[3] / ".venv" / "bin" / "btwr"
+    if workspace_candidate.exists():
+        return str(workspace_candidate)
+    return None

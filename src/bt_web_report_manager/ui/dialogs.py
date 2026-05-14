@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from pathlib import Path
 
 from nicegui import ui
 
 from bt_web_report_manager.commands import doctor
 from bt_web_report_manager.models import ManagerSettings, ToolStatus
-from bt_web_report_manager.settings import save_settings
+from bt_web_report_manager.settings import save_settings, workspace_btwr_executable
 from bt_web_report_manager.ui.state import ManagerState
 
 
@@ -238,10 +239,11 @@ async def open_doctor_dialog(state: ManagerState) -> None:
     dialog = ui.dialog()
 
     statuses: list[ToolStatus] = await asyncio.to_thread(doctor, state.settings)
+    workspace_btwr = workspace_btwr_executable()
 
     with dialog, ui.card().classes("min-w-[760px] max-w-[920px]"):
         ui.label("System Check").classes("dialog-title")
-        ui.label("Read-only setup checks. Run this after editing Settings to confirm everything resolves.").classes(
+        ui.label("Setup checks. Use the repair action when available, then rerun System Check to confirm.").classes(
             "dialog-subtitle"
         )
 
@@ -282,6 +284,21 @@ async def open_doctor_dialog(state: ManagerState) -> None:
                         ui.label(status.message).style(
                             "color: var(--text-2); font-family: var(--font-sans); font-size: 12px;"
                         )
+                        if _can_repair_btwr(status, workspace_btwr):
+                            repair_path = workspace_btwr or ""
+                            ui.label(f"Suggested path: {repair_path}").style(
+                                "color: var(--text); font-family: var(--font-mono); font-size: 11px; word-break: break-all;"
+                            )
+
+                            def _repair_btwr(path: str = repair_path) -> None:
+                                state.settings = replace(state.settings, btwr_executable=path)
+                                save_settings(state.settings)
+                                ui.notify("Saved workspace btwr path. Rerun System Check to confirm.", type="positive")
+                                dialog.close()
+
+                            ui.button("Use workspace btwr", on_click=_repair_btwr, color=None).props(
+                                "flat unelevated no-caps"
+                            ).classes("action-btn is-warning").style("align-self: flex-start; margin-top: 4px;")
 
         with ui.row().classes("w-full justify-end mt-3"):
             ui.button("Close", on_click=dialog.close, color=None).props("flat unelevated no-caps").classes(
@@ -289,3 +306,7 @@ async def open_doctor_dialog(state: ManagerState) -> None:
             )
 
     await dialog
+
+
+def _can_repair_btwr(status: ToolStatus, workspace_btwr: str | None) -> bool:
+    return bool(status.name == "btwr" and not status.ok and workspace_btwr and status.executable != workspace_btwr)

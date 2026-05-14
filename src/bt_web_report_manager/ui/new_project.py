@@ -20,7 +20,7 @@ from nicegui import ui
 from bt_web_report_manager.new_project import (
     NewProjectPlan,
     bootstrap_command,
-    bootstrap_command_available,
+    bootstrap_command_status,
     build_new_project_plan,
     clean_path_text,
     default_slug_from_project_folder,
@@ -317,11 +317,32 @@ async def open_new_project_wizard(
                     "automatically. Otherwise you'll see the manual checklist."
                 ).style("font-size: 12px; color: var(--text-2); margin-top: 4px;")
 
+                def _prepare_build_log() -> None:
+                    plan = plan_ref["plan"]
+                    if not build_log or plan is None:
+                        return
+                    status = bootstrap_command_status(state.settings)
+                    log = build_log[0]
+                    log.clear()
+                    log.push("[ready] Bootstrap plan is ready.")
+                    log.push(f"[check] configured btwr executable: {status.executable}")
+                    if status.resolved_path:
+                        log.push(f"[check] resolved btwr executable: {status.resolved_path}")
+                    log.push(f"[check] {status.message}")
+                    if status.available:
+                        log.push("[next] Click Run bootstrap to create the content-only 04_Web project.")
+                    else:
+                        log.push("[blocked] Automation cannot run until the configured btwr executable is fixed.")
+
+                def _go_build() -> None:
+                    _prepare_build_log()
+                    stepper.next()
+
                 with ui.stepper_navigation():
                     ui.button("← Back", on_click=stepper.previous, color=None).props("flat unelevated no-caps").classes(
                         "action-btn"
                     )
-                    ui.button("Build →", on_click=stepper.next, color=None).props("flat unelevated no-caps").classes(
+                    ui.button("Build →", on_click=_go_build, color=None).props("flat unelevated no-caps").classes(
                         "action-btn is-warning"
                     )
 
@@ -340,7 +361,13 @@ async def open_new_project_wizard(
                     for line in plan.summary_lines():
                         log.push(f"[plan] {line}")
                     log.push("")
-                    if bootstrap_command_available(state.settings):
+                    status = bootstrap_command_status(state.settings)
+                    log.push(f"[check] configured btwr executable: {status.executable}")
+                    if status.resolved_path:
+                        log.push(f"[check] resolved btwr executable: {status.resolved_path}")
+                    log.push(f"[check] {status.message}")
+                    log.push("")
+                    if status.available:
                         spec = bootstrap_command(plan, state.settings)
                         log.push(f"[run] $ {' '.join(spec.args)}")
                         finished = asyncio.Event()
@@ -359,7 +386,17 @@ async def open_new_project_wizard(
                         await runner.start(spec)
                         await finished.wait()
                     else:
-                        log.push("[info] btwr new is not available in the configured CLI. Manual checklist:")
+                        log.push("[blocked] btwr new is not available in the configured CLI.")
+                        if status.stdout.strip():
+                            log.push("[stdout]")
+                            for line in status.stdout.strip().splitlines():
+                                log.push(line)
+                        if status.stderr.strip():
+                            log.push("[stderr]")
+                            for line in status.stderr.strip().splitlines():
+                                log.push(line)
+                        log.push("")
+                        log.push("[manual checklist]")
                         log.push("")
                         for line in plan.manual_checklist():
                             log.push(line)

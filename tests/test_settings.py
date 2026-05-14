@@ -1,7 +1,13 @@
 from pathlib import Path
 
 from bt_web_report_manager.models import ManagerSettings
-from bt_web_report_manager.settings import load_settings, save_settings, settings_write_status
+from bt_web_report_manager.settings import (
+    _default_btwr_executable,
+    load_settings,
+    save_settings,
+    settings_write_status,
+    workspace_btwr_executable,
+)
 
 
 def test_settings_round_trip(tmp_path: Path) -> None:
@@ -29,3 +35,14 @@ def test_settings_round_trip(tmp_path: Path) -> None:
 def test_settings_write_status(tmp_path: Path) -> None:
     status = settings_write_status(tmp_path / "support")
     assert status.ok
+
+
+def test_missing_settings_uses_available_default_btwr(tmp_path: Path) -> None:
+    loaded = load_settings(tmp_path / "missing.yaml")
+    assert loaded.btwr_executable == _default_btwr_executable()
+
+
+def test_workspace_btwr_executable_matches_default_when_present() -> None:
+    workspace_btwr = workspace_btwr_executable()
+    if workspace_btwr is not None:
+        assert _default_btwr_executable() == workspace_btwr

@@ -13,6 +13,7 @@ from pathlib import Path
 from bt_web_report_manager.models import ManagerSettings
 from bt_web_report_manager.new_project import (
     bootstrap_command_available,
+    bootstrap_command_status,
     build_new_project_plan,
 )
 
@@ -47,3 +48,6 @@ def test_bootstrap_command_available_returns_false_for_missing_btwr(tmp_path: Pa
         btwr_executable="btwr-missing-for-new-project-test",
     )
     assert bootstrap_command_available(settings) is False
+    status = bootstrap_command_status(settings)
+    assert not status.available
+    assert "not found" in status.message

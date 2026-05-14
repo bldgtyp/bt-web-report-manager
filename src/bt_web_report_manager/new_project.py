@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -75,6 +76,16 @@ class NewProjectPlan:
             "8. Git init, first commit, and push main. Do not install Node dependencies in 04_Web.",
             "9. Configure Cloudflare Pages and reserve the production subdomain.",
         ]
+
+
+@dataclass(frozen=True)
+class BootstrapCommandStatus:
+    available: bool
+    executable: str
+    resolved_path: str | None
+    message: str
+    stdout: str = ""
+    stderr: str = ""
 
 
 def build_new_project_plan(
@@ -206,11 +217,54 @@ def validate_new_project_plan(plan: NewProjectPlan) -> list[str]:
 
 
 def bootstrap_command_available(settings: ManagerSettings) -> bool:
+    return bootstrap_command_status(settings).available
+
+
+def bootstrap_command_status(settings: ManagerSettings) -> BootstrapCommandStatus:
+    executable = settings.btwr_executable
+    resolved = shutil.which(executable)
+    if resolved is None:
+        return BootstrapCommandStatus(
+            available=False,
+            executable=executable,
+            resolved_path=None,
+            message=f"{executable} was not found on the Manager PATH. Set the btwr executable in Settings.",
+        )
     try:
-        result = run_command([settings.btwr_executable, "new", "--help"], timeout=5)
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return result.returncode == 0
+        result = run_command([resolved, "new", "--help"], timeout=5)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return BootstrapCommandStatus(
+            available=False,
+            executable=executable,
+            resolved_path=resolved,
+            message=str(exc),
+        )
+    if result.returncode != 0:
+        return BootstrapCommandStatus(
+            available=False,
+            executable=executable,
+            resolved_path=resolved,
+            message=f"{resolved} new --help exited {result.returncode}.",
+            stdout=result.stdout,
+            stderr=result.stderr,
+        )
+    if "Create a content-only report repo" not in result.stdout and "--slug" not in result.stdout:
+        return BootstrapCommandStatus(
+            available=False,
+            executable=executable,
+            resolved_path=resolved,
+            message=f"{resolved} does not look like the expected bt-web-report CLI.",
+            stdout=result.stdout,
+            stderr=result.stderr,
+        )
+    return BootstrapCommandStatus(
+        available=True,
+        executable=executable,
+        resolved_path=resolved,
+        message=f"{resolved} supports btwr new.",
+        stdout=result.stdout,
+        stderr=result.stderr,
+    )
 
 
 def bootstrap_command(plan: NewProjectPlan, settings: ManagerSettings) -> CommandSpec:
