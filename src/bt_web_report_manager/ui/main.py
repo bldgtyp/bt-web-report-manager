@@ -53,6 +53,8 @@ from bt_web_report_manager.ui.dialogs import (
 )
 from bt_web_report_manager.ui.helpers import (
     action_card_states,
+    badge_kind,
+    badge_tooltip,
     badges_html,
     commit_disabled_reason,
     format_dt,
@@ -69,7 +71,7 @@ from bt_web_report_manager.ui.helpers import (
     suggest_commit_message,
 )
 from bt_web_report_manager.ui.new_project import open_new_project_wizard
-from bt_web_report_manager.ui.preview import local_preview_url_from_log_line
+from bt_web_report_manager.ui.preview import local_preview_url_from_log_line, tina_admin_url
 from bt_web_report_manager.ui.runner import ProcessRunner
 from bt_web_report_manager.ui.state import ManagerState
 from bt_web_report_manager.ui.theme import apply_theme
@@ -103,7 +105,7 @@ def build_page(state: ManagerState) -> None:
     log_lines: list[str] = []
     current_screen = {"name": "index"}
     scrape_feedback: dict[str, Any] = {"run": None, "dialog": None, "title": None, "message": None, "spinner": None}
-    preview_browser = {"armed": False, "opened": False}
+    preview_browser = {"armed": False, "opened": False, "mode": "preview"}
 
     def log_message(text: str) -> None:
         trace_event("ui.main.log_message", text=text)
@@ -123,7 +125,7 @@ def build_page(state: ManagerState) -> None:
         if isinstance(active_scrape, ScrapeRunFeedback):
             active_scrape.output_lines.append(line)
         log_message(line)
-        maybe_open_dev_preview(line)
+        maybe_open_local_browser(line)
 
     def on_runner_done(name: str, exit_code: int, refresh_on_success: bool, canceled: bool) -> None:
         trace_event(
@@ -140,6 +142,11 @@ def build_page(state: ManagerState) -> None:
         if name == "Dev preview":
             preview_browser["armed"] = False
             preview_browser["opened"] = False
+            preview_browser["mode"] = "preview"
+        if name == "Open editor":
+            preview_browser["armed"] = False
+            preview_browser["opened"] = False
+            preview_browser["mode"] = "preview"
         if name == "Scrape":
             asyncio.create_task(_finish_scrape_feedback(exit_code=exit_code, canceled=canceled))
         # Apply idle state immediately. The timer below still owns any async
@@ -150,24 +157,29 @@ def build_page(state: ManagerState) -> None:
         # Schedule the UI update via a timer so the slot context is preserved
         ui.timer(0, lambda: _post_command_refresh(refresh_on_success and exit_code == 0 and not canceled), once=True)
 
-    def maybe_open_dev_preview(line: str) -> None:
+    def maybe_open_local_browser(line: str) -> None:
         if not preview_browser["armed"] or preview_browser["opened"]:
             return
         url = local_preview_url_from_log_line(line)
         if url is None:
             return
+        mode = str(preview_browser["mode"])
+        if mode == "editor":
+            url = tina_admin_url(url)
         preview_browser["opened"] = True
-        trace_event("ui.action.dev_preview.open_browser", url=url)
+        trace_event("ui.action.local_browser.open", mode=mode, url=url)
         try:
             opened = webbrowser.open(url, new=1)
         except Exception as exc:
-            trace_exception("ui.action.dev_preview.open_browser_failed", exc, url=url)
-            log_message(f"Dev preview is ready, but the browser did not open: {url}")
+            trace_exception("ui.action.local_browser.open_failed", exc, mode=mode, url=url)
+            label = "TinaCMS editor" if mode == "editor" else "Dev preview"
+            log_message(f"{label} is ready, but the browser did not open: {url}")
             return
+        label = "TinaCMS editor" if mode == "editor" else "Dev preview"
         if opened:
-            log_message(f"Opened dev preview in browser: {url}")
+            log_message(f"Opened {label} in browser: {url}")
         else:
-            log_message(f"Dev preview is ready: {url}")
+            log_message(f"{label} is ready: {url}")
 
     def _post_command_refresh(do_refresh: bool) -> None:
         trace_event("ui.main.post_command_refresh", do_refresh=do_refresh)
@@ -417,6 +429,13 @@ def build_page(state: ManagerState) -> None:
         current_screen["name"] = "index"
         render_page()
 
+    def _workspace_badges(project: ProjectStatus) -> None:
+        with ui.element("div").classes("workspace-badges"):
+            for badge in project.badges:
+                with ui.element("span").classes(f"chip chip-{badge_kind(badge)}"):
+                    ui.label(badge)
+                    ui.tooltip(badge_tooltip(badge))
+
     def render_workspace() -> None:
         project = state.selected_project()
         if project is None:
@@ -434,7 +453,7 @@ def build_page(state: ManagerState) -> None:
                 with ui.element("div").classes("project-identity"):
                     with ui.element("div").classes("project-title-row"):
                         ui.label(project.metadata.project_title).classes("workspace-title")
-                        ui.html(badges_html(project.badges)).classes("workspace-badges")
+                        _workspace_badges(project)
                     with ui.element("div").classes("project-meta-row"):
                         _meta_pill(project.metadata.slug)
                         _meta_text("Client", project.metadata.client_name)
@@ -717,10 +736,12 @@ def build_page(state: ManagerState) -> None:
         if await prepare_mutating_action(project):
             preview_browser["armed"] = True
             preview_browser["opened"] = False
+            preview_browser["mode"] = "preview"
             started = await _start_command(dev_preview_command(project, state.settings))
             if not started:
                 preview_browser["armed"] = False
                 preview_browser["opened"] = False
+                preview_browser["mode"] = "preview"
 
     async def run_open_editor() -> None:
         project = state.selected_project()
@@ -728,7 +749,14 @@ def build_page(state: ManagerState) -> None:
             trace_event("ui.action.open_editor.no_project")
             return
         if await prepare_mutating_action(project):
-            await _start_command(open_editor_command(project, state.settings))
+            preview_browser["armed"] = True
+            preview_browser["opened"] = False
+            preview_browser["mode"] = "editor"
+            started = await _start_command(open_editor_command(project, state.settings))
+            if not started:
+                preview_browser["armed"] = False
+                preview_browser["opened"] = False
+                preview_browser["mode"] = "preview"
 
     async def run_open_code_editor() -> None:
         project = state.selected_project()

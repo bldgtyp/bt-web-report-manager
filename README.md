@@ -86,7 +86,8 @@ temporary folder.
   - **Scrape**: `btwr scrape <project>` — writes a Dropbox lock first
   - **Dev preview**: `pnpm dev` — long-running, writes a lock
   - **Open editor (TinaCMS)**: `pnpm dev:editor` — long-running, writes a
-    lock; disabled when `package.json` lacks the `dev:editor` script
+    lock; opens TinaCMS automatically when the local Astro URL is ready;
+    disabled when `package.json` lacks the `dev:editor` script
   - **Open code editor**: launches the configured editor at the project
     path (e.g. `code`)
   - **Commit & push**: prompts for a message, confirms, then
