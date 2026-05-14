@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import getpass
 import json
+import os
 import socket
 from datetime import datetime, timezone
 from pathlib import Path
@@ -127,6 +128,67 @@ def read_project_metadata(project_path: Path) -> ProjectMetadata:
     )
     trace_event("projects.metadata.done", path=project_yaml, metadata=metadata)
     return metadata
+
+
+def set_project_phpp_path(project_path: Path, phpp_path: Path | None) -> Path:
+    """Update ``source_files.phpp_path`` in a content-only project's project.yaml."""
+    project_yaml = project_path / "project.yaml"
+    trace_event("projects.phpp_path.set.start", project_path=project_path, project_yaml=project_yaml, phpp_path=phpp_path)
+    if not project_yaml.exists():
+        msg = f"project.yaml does not exist: {project_yaml}"
+        raise ValueError(msg)
+    if phpp_path is not None:
+        phpp_path = phpp_path.expanduser().resolve()
+        if not phpp_path.exists():
+            msg = f"PHPP workbook does not exist: {phpp_path}"
+            raise ValueError(msg)
+        if not phpp_path.is_file():
+            msg = f"PHPP path is not a file: {phpp_path}"
+            raise ValueError(msg)
+        if phpp_path.suffix.lower() not in {".xlsx", ".xlsm"}:
+            msg = "PHPP workbook must be an .xlsx or .xlsm file."
+            raise ValueError(msg)
+
+    raw = yaml.safe_load(project_yaml.read_text()) or {}
+    if not isinstance(raw, dict):
+        msg = f"project.yaml must contain a mapping: {project_yaml}"
+        raise ValueError(msg)
+    source_files = raw.get("source_files")
+    if not isinstance(source_files, dict):
+        source_files = {}
+        raw["source_files"] = source_files
+    if phpp_path is None:
+        source_files["phpp_path"] = ""
+    else:
+        source_files["phpp_path"] = os.path.relpath(phpp_path, project_path)
+    project_yaml.write_text(yaml.safe_dump(raw, sort_keys=False))
+    trace_event(
+        "projects.phpp_path.set.done",
+        project_path=project_path,
+        project_yaml=project_yaml,
+        phpp_path=phpp_path,
+        stored=source_files["phpp_path"],
+    )
+    return project_yaml
+
+
+def validate_project_web_root(path: Path) -> Path:
+    """Resolve and validate a replacement project web-root folder."""
+    root = path.expanduser().resolve()
+    trace_event("projects.web_root.validate.start", path=path, resolved=root)
+    if not root.exists():
+        msg = f"Web root does not exist: {root}"
+        raise ValueError(msg)
+    if not root.is_dir():
+        msg = f"Web root is not a folder: {root}"
+        raise ValueError(msg)
+    if not (root / "project.yaml").exists():
+        msg = f"Web root must contain project.yaml: {root}"
+        raise ValueError(msg)
+    # Parse once so a bad replacement root fails before Manager settings are changed.
+    read_project_metadata(root)
+    trace_event("projects.web_root.validate.done", resolved=root)
+    return root
 
 
 def _standard_project_paths(root: Path) -> list[Path]:

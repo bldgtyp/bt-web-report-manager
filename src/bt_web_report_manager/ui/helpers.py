@@ -200,16 +200,15 @@ def project_file_locations(project: ProjectStatus) -> list[FileLocation]:
     locations = [
         FileLocation("web_root", "Web root", "WEB", str(project.project_path), path=project.project_path),
     ]
-    if project.metadata.phpp_path is not None:
-        locations.append(
-            FileLocation(
-                "phpp",
-                "PHPP workbook",
-                "XLSX",
-                str(project.metadata.phpp_path),
-                path=project.metadata.phpp_path,
-            )
+    locations.append(
+        FileLocation(
+            "phpp",
+            "PHPP workbook",
+            "XLSX",
+            str(project.metadata.phpp_path) if project.metadata.phpp_path is not None else "Not configured",
+            path=project.metadata.phpp_path,
         )
+    )
     if project.manifest_path is not None:
         locations.append(
             FileLocation("manifest", "Manifest", "JSON", str(project.manifest_path), path=project.manifest_path)

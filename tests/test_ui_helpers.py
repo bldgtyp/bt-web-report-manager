@@ -141,6 +141,20 @@ def test_project_file_locations_include_expected_workspace_paths(tmp_path: Path)
     assert locations["manifest"].value.endswith("data/manifest.json")
 
 
+def test_project_file_locations_include_unconfigured_phpp(tmp_path: Path) -> None:
+    project = _make_project(tmp_path, with_phpp=False)
+    raw = yaml.safe_load((project / "project.yaml").read_text())
+    raw["source_files"]["phpp_path"] = ""
+    (project / "project.yaml").write_text(yaml.safe_dump(raw, sort_keys=False))
+    settings = ManagerSettings(projects_root=tmp_path)
+    status = read_project_status(project, settings)
+
+    locations = {location.key: location for location in project_file_locations(status)}
+
+    assert locations["phpp"].value == "Not configured"
+    assert locations["phpp"].path is None
+
+
 def _make_project(tmp_path: Path, *, with_phpp: bool) -> Path:
     project = tmp_path / "Sample Project" / "04_Web"
     phpp = tmp_path / "Sample Project" / "07_PHPP" / "model.xlsx"

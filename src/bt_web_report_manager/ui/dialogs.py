@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import tkinter as tk
+from tkinter import filedialog
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from pathlib import Path
@@ -93,6 +95,57 @@ async def prompt_dialog(
     value = str(answer).strip() or None
     trace_event("ui.prompt.closed", title=title, answer=value)
     return value
+
+
+async def choose_directory_dialog(*, title: str, initial_dir: Path | None = None) -> Path | None:
+    """Open a native Finder folder picker."""
+    return await asyncio.to_thread(_choose_directory, title, initial_dir)
+
+
+async def choose_file_dialog(
+    *,
+    title: str,
+    initial_dir: Path | None = None,
+    filetypes: tuple[tuple[str, str], ...] = (("All files", "*"),),
+) -> Path | None:
+    """Open a native Finder file picker."""
+    return await asyncio.to_thread(_choose_file, title, initial_dir, filetypes)
+
+
+def _choose_directory(title: str, initial_dir: Path | None) -> Path | None:
+    trace_event("ui.file_dialog.directory.open", title=title, initial_dir=initial_dir)
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    try:
+        selected = filedialog.askdirectory(
+            title=title,
+            initialdir=str(initial_dir) if initial_dir is not None else None,
+            mustexist=True,
+        )
+    finally:
+        root.destroy()
+    path = Path(selected).expanduser() if selected else None
+    trace_event("ui.file_dialog.directory.closed", title=title, selected=path)
+    return path
+
+
+def _choose_file(title: str, initial_dir: Path | None, filetypes: tuple[tuple[str, str], ...]) -> Path | None:
+    trace_event("ui.file_dialog.file.open", title=title, initial_dir=initial_dir, filetypes=filetypes)
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    try:
+        selected = filedialog.askopenfilename(
+            title=title,
+            initialdir=str(initial_dir) if initial_dir is not None else None,
+            filetypes=filetypes,
+        )
+    finally:
+        root.destroy()
+    path = Path(selected).expanduser() if selected else None
+    trace_event("ui.file_dialog.file.closed", title=title, selected=path)
+    return path
 
 
 async def info_dialog(*, title: str, message: str, dismiss_label: str = "Close") -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from nicegui import app as nicegui_app
 
 from bt_web_report_manager import app
 from bt_web_report_manager.ui.main import _hidden_project_paths_with
@@ -31,6 +32,22 @@ def test_show_browser_override_disables_auto_open(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setenv("BTWR_MANAGER_SHOW", "0")
 
     assert not app._show_browser_enabled()
+
+
+def test_native_window_enables_text_selection() -> None:
+    nicegui_app.native.window_args.pop("text_select", None)
+
+    app._configure_native_window(native=True)
+
+    assert nicegui_app.native.window_args["text_select"] is True
+
+
+def test_browser_mode_does_not_touch_native_window_args() -> None:
+    nicegui_app.native.window_args.pop("text_select", None)
+
+    app._configure_native_window(native=False)
+
+    assert "text_select" not in nicegui_app.native.window_args
 
 
 def test_hidden_project_paths_with_appends_resolved_path_once(tmp_path: Path) -> None:

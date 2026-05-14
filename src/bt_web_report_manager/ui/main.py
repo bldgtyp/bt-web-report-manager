@@ -39,6 +39,7 @@ from bt_web_report_manager.locks import (
 )
 from bt_web_report_manager.models import ProjectStatus
 from bt_web_report_manager.projects import discover_projects
+from bt_web_report_manager.projects import set_project_phpp_path, validate_project_web_root
 from bt_web_report_manager.settings import cleanup_project_runtime, save_settings
 from bt_web_report_manager.ui.command_feedback import (
     ScrapeRunFeedback,
@@ -46,6 +47,8 @@ from bt_web_report_manager.ui.command_feedback import (
     scrape_success_summary,
 )
 from bt_web_report_manager.ui.dialogs import (
+    choose_directory_dialog,
+    choose_file_dialog,
     confirm_dialog,
     open_doctor_dialog,
     open_settings_dialog,
@@ -578,6 +581,22 @@ def build_page(state: ManagerState) -> None:
                     with ui.element("div").classes("file-main"):
                         ui.label(location.label).classes("file-label")
                         ui.label(location.value).classes("file-value")
+                    if location.key == "web_root":
+                        ui.button(
+                            icon="drive_folder_upload",
+                            color=None,
+                            on_click=lambda: ui.timer(0, reset_web_root, once=True),
+                        ).props(
+                            "flat dense round"
+                        ).classes("icon-tool").tooltip("Choose a replacement web-root folder with project.yaml.")
+                    if location.key == "phpp":
+                        ui.button(
+                            icon="folder_open",
+                            color=None,
+                            on_click=lambda: ui.timer(0, reset_phpp_path, once=True),
+                        ).props(
+                            "flat dense round"
+                        ).classes("icon-tool").tooltip("Choose a replacement PHPP workbook.")
                     ui.button(
                         icon="content_copy",
                         color=None,
@@ -673,6 +692,79 @@ def build_page(state: ManagerState) -> None:
             projects=[str(project.project_path) for project in state.projects],
         )
         render_page()
+
+    async def reset_phpp_path() -> None:
+        project = state.selected_project()
+        if project is None:
+            trace_event("ui.files.reset_phpp.no_project")
+            return
+        selected = await choose_file_dialog(
+            title="Choose PHPP workbook",
+            initial_dir=project.metadata.phpp_path.parent
+            if project.metadata.phpp_path is not None
+            else project.project_path.parent,
+            filetypes=(("Excel workbooks", "*.xlsx *.xlsm"), ("All files", "*")),
+        )
+        if selected is None:
+            trace_event("ui.files.reset_phpp.cancelled", project=project.project_path)
+            return
+        try:
+            await asyncio.to_thread(set_project_phpp_path, project.project_path, selected)
+        except ValueError as exc:
+            trace_exception("ui.files.reset_phpp.failed", exc, project=project.project_path, selected=selected)
+            log_message(f"PHPP path was not changed: {exc}")
+            ui.notify(str(exc), type="negative")
+            return
+        log_message(f"PHPP workbook reset for {project.metadata.slug}: {selected}")
+        await refresh_projects(project.project_path)
+
+    async def reset_web_root() -> None:
+        project = state.selected_project()
+        if project is None:
+            trace_event("ui.files.reset_web_root.no_project")
+            return
+        selected = await choose_directory_dialog(title="Choose project web root", initial_dir=project.project_path)
+        if selected is None:
+            trace_event("ui.files.reset_web_root.cancelled", project=project.project_path)
+            return
+        try:
+            new_root = await asyncio.to_thread(validate_project_web_root, selected)
+        except ValueError as exc:
+            trace_exception("ui.files.reset_web_root.failed", exc, project=project.project_path, selected=selected)
+            log_message(f"Web root was not changed: {exc}")
+            ui.notify(str(exc), type="negative")
+            return
+        if new_root == project.project_path.expanduser().resolve():
+            log_message("Web root unchanged.")
+            return
+        ok = await confirm_dialog(
+            title="Reset web root",
+            message=(
+                "Point this Manager project entry at the selected web-root folder?\n\n"
+                f"Current: {project.project_path}\n"
+                f"New: {new_root}\n\n"
+                "Manager-owned build/preview workspaces for this slug will be deleted so TinaCMS and preview "
+                "restart against the new folder. Project source files are not deleted."
+            ),
+            confirm_label="Reset web root",
+            danger=True,
+        )
+        if not ok:
+            trace_event("ui.files.reset_web_root.confirm_cancelled", project=project.project_path, selected=new_root)
+            log_message("Web root reset canceled.")
+            return
+
+        hidden_paths = _hidden_project_paths_with(state.settings.hidden_project_paths, project.project_path)
+        extra_paths = _extra_project_paths_with(state.settings.extra_project_paths, new_root)
+        state.settings = replace(state.settings, extra_project_paths=extra_paths, hidden_project_paths=hidden_paths)
+        save_settings(state.settings)
+        removed_runtime_dirs = cleanup_project_runtime(project.metadata.slug)
+        state.owned_lock_paths.discard(project.project_path)
+        log_message(
+            f"Web root reset for {project.metadata.slug}: {new_root}. "
+            f"Removed {len(removed_runtime_dirs)} Manager runtime folder(s)."
+        )
+        await refresh_projects(new_root)
 
     async def prepare_mutating_action(project: ProjectStatus) -> bool:
         trace_event("ui.mutating_action.prepare.start", project=project.project_path, slug=project.metadata.slug)
@@ -956,6 +1048,14 @@ def _register_shutdown_for(state: ManagerState, runner: ProcessRunner) -> None:
 
 
 def _hidden_project_paths_with(existing: tuple[Path, ...], project_path: Path) -> tuple[Path, ...]:
+    resolved_project_path = project_path.expanduser().resolve()
+    resolved_existing = {path.expanduser().resolve() for path in existing}
+    if resolved_project_path in resolved_existing:
+        return existing
+    return (*existing, resolved_project_path)
+
+
+def _extra_project_paths_with(existing: tuple[Path, ...], project_path: Path) -> tuple[Path, ...]:
     resolved_project_path = project_path.expanduser().resolve()
     resolved_existing = {path.expanduser().resolve() for path in existing}
     if resolved_project_path in resolved_existing:

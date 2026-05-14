@@ -30,6 +30,9 @@ tab. To open a native pywebview window instead, set the env var:
 BTWR_MANAGER_NATIVE=1 uv run btwr-manager
 ```
 
+Native windows enable normal document text selection so visible status, paths,
+and command output can be selected and copied with the mouse.
+
 Useful env vars:
 
 | Var                          | Purpose                                          |

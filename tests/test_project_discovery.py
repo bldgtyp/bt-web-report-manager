@@ -6,7 +6,13 @@ from pathlib import Path
 import yaml
 
 from bt_web_report_manager.models import ManagerSettings
-from bt_web_report_manager.projects import _with_badges, discover_projects, read_project_status
+from bt_web_report_manager.projects import (
+    _with_badges,
+    discover_projects,
+    read_project_status,
+    set_project_phpp_path,
+    validate_project_web_root,
+)
 from bt_web_report_manager.models import GitStatus, LockInfo, ProjectMetadata, ProjectStatus
 
 
@@ -81,6 +87,48 @@ def test_manifest_without_generated_at_warns_when_not_pending(tmp_path: Path) ->
     status = read_project_status(project, ManagerSettings(projects_root=tmp_path))
 
     assert "manifest.json has no generated_at timestamp" in status.warnings
+
+
+def test_set_project_phpp_path_writes_relative_project_yaml_path(tmp_path: Path) -> None:
+    project = _make_project(tmp_path / "Project" / "04_Web", "project")
+    replacement = tmp_path / "Project" / "PHPP" / "replacement.xlsm"
+    replacement.parent.mkdir()
+    replacement.write_text("fixture")
+
+    written = set_project_phpp_path(project, replacement)
+
+    raw = yaml.safe_load(written.read_text())
+    assert raw["source_files"]["phpp_path"] == "../PHPP/replacement.xlsm"
+    status = read_project_status(project, ManagerSettings(projects_root=tmp_path))
+    assert status.metadata.phpp_path == replacement.resolve()
+
+
+def test_set_project_phpp_path_rejects_non_workbook(tmp_path: Path) -> None:
+    project = _make_project(tmp_path / "Project" / "04_Web", "project")
+    not_workbook = tmp_path / "Project" / "07_PHPP" / "notes.txt"
+    not_workbook.write_text("fixture")
+
+    try:
+        set_project_phpp_path(project, not_workbook)
+    except ValueError as exc:
+        assert ".xlsx or .xlsm" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError")
+
+
+def test_validate_project_web_root_requires_project_yaml(tmp_path: Path) -> None:
+    project = _make_project(tmp_path / "Project" / "04_Web", "project")
+
+    assert validate_project_web_root(project) == project.resolve()
+
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    try:
+        validate_project_web_root(empty)
+    except ValueError as exc:
+        assert "project.yaml" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError")
 
 
 def test_lock_badge_reports_stale_lock(tmp_path: Path) -> None:

@@ -13,6 +13,7 @@ import socket
 import sys
 from pathlib import Path
 
+from nicegui import app as nicegui_app
 from nicegui import ui
 
 from bt_web_report_manager.settings import load_settings
@@ -67,6 +68,12 @@ def _show_browser_enabled() -> bool:
     return True
 
 
+def _configure_native_window(native: bool) -> None:
+    if not native:
+        return
+    nicegui_app.native.window_args.setdefault("text_select", True)
+
+
 def run() -> int:
     multiprocessing.freeze_support()
     trace_path = configure_trace_logging()
@@ -90,6 +97,7 @@ def run() -> int:
 
     native = _native_window_enabled()
     port = _pick_port()
+    _configure_native_window(native)
 
     trace_event("app.run_ui", port=port, native=native, show=_show_browser_enabled())
     ui.run(
