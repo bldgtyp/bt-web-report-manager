@@ -141,7 +141,7 @@ def build_page(state: ManagerState) -> None:
             preview_browser["armed"] = False
             preview_browser["opened"] = False
         if name == "Scrape":
-            ui.timer(0, lambda: _finish_scrape_feedback(exit_code=exit_code, canceled=canceled), once=True)
+            asyncio.create_task(_finish_scrape_feedback(exit_code=exit_code, canceled=canceled))
         # Apply idle state immediately. The timer below still owns any async
         # refresh work, but buttons should not remain disabled if that callback
         # is delayed by the browser/client event cycle.
@@ -180,25 +180,28 @@ def build_page(state: ManagerState) -> None:
     def _begin_scrape_feedback(project: ProjectStatus, spec: CommandSpec) -> None:
         trace_event("ui.scrape_feedback.begin", project=project.project_path, slug=project.metadata.slug)
         phpp_filename = project.metadata.phpp_path.name if project.metadata.phpp_path is not None else "configured PHPP"
-        progress_dialog = ui.dialog().props("persistent")
-        with progress_dialog, ui.card().classes("min-w-[460px] max-w-[620px]"):
-            title = ui.label(f"Scraping PHPP {phpp_filename}").classes("dialog-title")
-            ui.label(project.metadata.project_title).classes("dialog-subtitle")
-            with ui.row().classes("w-full items-center gap-3 mt-2"):
-                spinner = ui.spinner(size="24px")
-                message = ui.label("Reading the PHPP workbook and writing report data files.").classes(
-                    "scrape-dialog-message"
+        trace_event("ui.scrape_feedback.create_dialog", project=project.project_path, phpp_filename=phpp_filename)
+        with screen_container:
+            progress_dialog = ui.dialog().props("persistent")
+            with progress_dialog, ui.card().classes("min-w-[460px] max-w-[620px]"):
+                title = ui.label(f"Scraping PHPP {phpp_filename}").classes("dialog-title")
+                ui.label(project.metadata.project_title).classes("dialog-subtitle")
+                with ui.row().classes("w-full items-center gap-3 mt-2"):
+                    spinner = ui.spinner(size="24px")
+                    message = ui.label("Reading the PHPP workbook and writing report data files.").classes(
+                        "scrape-dialog-message"
+                    )
+                ui.label(f"Output folder: {project.metadata.data_dir}").style(
+                    "font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);"
                 )
-            ui.label(f"Output folder: {project.metadata.data_dir}").style(
-                "font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);"
-            )
-            with ui.row().classes("w-full justify-end mt-4"):
-                close_button = (
-                    ui.button("Close", on_click=progress_dialog.close, color=None)
-                    .props("flat unelevated no-caps")
-                    .classes("action-btn")
-                )
-                close_button.set_enabled(False)
+                with ui.row().classes("w-full justify-end mt-4"):
+                    close_button = (
+                        ui.button("Close", on_click=progress_dialog.close, color=None)
+                        .props("flat unelevated no-caps")
+                        .classes("action-btn")
+                    )
+                    close_button.set_enabled(False)
+        trace_event("ui.scrape_feedback.dialog_created", project=project.project_path)
         scrape_feedback["run"] = ScrapeRunFeedback(
             project_title=project.metadata.project_title,
             project_slug=project.metadata.slug,
@@ -214,7 +217,9 @@ def build_page(state: ManagerState) -> None:
         scrape_feedback["spinner"] = spinner
         scrape_feedback["close_button"] = close_button
         screen_container.classes(add="is-frozen")
+        trace_event("ui.scrape_feedback.open_dialog", project=project.project_path)
         progress_dialog.open()
+        trace_event("ui.scrape_feedback.dialog_opened", project=project.project_path)
 
     async def _finish_scrape_feedback(exit_code: int, canceled: bool) -> None:
         active_scrape = scrape_feedback.get("run")
@@ -695,7 +700,11 @@ def build_page(state: ManagerState) -> None:
             return
         if await prepare_mutating_action(project):
             spec = scrape_command(project, state.settings)
-            _begin_scrape_feedback(project, spec)
+            try:
+                _begin_scrape_feedback(project, spec)
+            except Exception as exc:
+                trace_exception("ui.scrape_feedback.begin_failed", exc, project=project.project_path, spec=spec)
+                log_message(f"Scrape feedback panel failed to open: {exc}")
             started = await _start_command(spec)
             if not started and isinstance(scrape_feedback.get("run"), ScrapeRunFeedback):
                 await _finish_scrape_feedback(exit_code=-1, canceled=False)
