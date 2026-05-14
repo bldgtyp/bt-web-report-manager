@@ -40,6 +40,15 @@ set_plist_value() {
   /usr/libexec/PlistBuddy -c "Add :$key string $value" "$plist"
 }
 
+verify_release_zip() {
+  local tmp_dir
+  tmp_dir="$(mktemp -d)"
+  trap 'rm -rf "$tmp_dir"' RETURN
+  ditto -x -k "$ZIP_PATH" "$tmp_dir"
+  codesign --verify --deep --strict --verbose=2 "$tmp_dir/$APP_NAME.app"
+  spctl -a -vv "$tmp_dir/$APP_NAME.app"
+}
+
 echo "[1/5] Syncing dependencies..."
 uv sync --extra dev --extra package
 
@@ -86,6 +95,7 @@ if [ -n "$NOTARIZE_PROFILE" ]; then
   xcrun stapler validate "$APP_PATH"
   rm -f "$ZIP_PATH"
   ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
+  verify_release_zip
   echo "Notarized archive: $ZIP_PATH"
 else
   echo "[4/5] Skipping notarization (set NOTARIZE_PROFILE to enable)"

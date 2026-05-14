@@ -37,6 +37,16 @@ def test_safe_extract_zip_rejects_path_traversal(tmp_path: Path) -> None:
         _safe_extract_zip(archive, tmp_path / "out")
 
 
+def test_safe_extract_zip_uses_macos_archive_extraction(tmp_path: Path) -> None:
+    archive = tmp_path / "ok.zip"
+    with zipfile.ZipFile(archive, "w") as zip_file:
+        zip_file.writestr("payload/file.txt", "ok")
+
+    _safe_extract_zip(archive, tmp_path / "out")
+
+    assert (tmp_path / "out" / "payload" / "file.txt").read_text() == "ok"
+
+
 def test_find_app_bundle_prefers_expected_name(tmp_path: Path) -> None:
     app = tmp_path / APP_BUNDLE_NAME
     (app / "Contents" / "MacOS").mkdir(parents=True)

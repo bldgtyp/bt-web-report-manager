@@ -47,6 +47,7 @@ def test_build_script_stamps_bundle_version_metadata() -> None:
     assert "CFBundleIdentifier" in script
     assert 'set_plist_value "CFBundleShortVersionString" "$VERSION"' in script
     assert 'set_plist_value "CFBundleVersion" "$VERSION"' in script
+    assert "verify_release_zip" in script
 
 
 def test_makefile_has_release_targets() -> None:

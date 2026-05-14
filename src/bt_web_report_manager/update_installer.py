@@ -148,9 +148,18 @@ def _safe_extract_zip(archive_path: Path, target_dir: Path) -> None:
                     destination.relative_to(target_root)
                 except ValueError as exc:
                     raise UpdateInstallError(f"Update archive contains unsafe path: {member.filename}") from exc
-            archive.extractall(target_dir)
     except zipfile.BadZipFile as exc:
         raise UpdateInstallError("Update asset is not a valid ZIP archive.") from exc
+
+    extract = subprocess.run(
+        ["ditto", "-x", "-k", str(archive_path), str(target_dir)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if extract.returncode != 0:
+        message = (extract.stderr or extract.stdout).strip()
+        raise UpdateInstallError(f"Could not extract update ZIP with ditto: {message}")
 
 
 def _find_app_bundle(root: Path) -> Path:

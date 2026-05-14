@@ -103,6 +103,10 @@ in-app update dialog's install path looks for. The app downloads the ZIP,
 extracts the `.app`, verifies code signing / Team ID / Gatekeeper acceptance,
 starts a detached helper, quits, swaps the app bundle, and relaunches.
 
+The updater extracts release ZIPs with macOS `ditto`, not Python `zipfile`.
+PyInstaller app bundles contain sealed symlinks and macOS metadata; extracting
+with `zipfile` mutates those resources and invalidates the code signature.
+
 ## CI decision
 
 Do not add a GitHub Actions release workflow yet. Until signing and
