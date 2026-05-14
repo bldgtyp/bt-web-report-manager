@@ -1,10 +1,10 @@
 # bt-web-report-manager
 
-NiceGUI desktop dashboard that wraps the `btwr` CLI. Renders in a browser
-tab (or a native pywebview window) and shells out to `btwr`, `pnpm`, `git`,
-`gh`, and the configured code editor — every project action ultimately maps
-to a subprocess so the manager stays a thin coordinator over Dropbox-synced
-project folders.
+NiceGUI desktop dashboard that wraps the `btwr` CLI. Packaged `.app` builds
+open a native pywebview window; source runs open a browser tab by default.
+The app shells out to `btwr`, `pnpm`, `git`, `gh`, and the configured code
+editor — every project action ultimately maps to a subprocess so the manager
+stays a thin coordinator over Dropbox-synced project folders.
 
 **Standalone venv** — this package is intentionally NOT a member of the
 parent uv workspace. It shells out to `btwr` as a subprocess (it never
@@ -35,7 +35,8 @@ Useful env vars:
 | Var                          | Purpose                                          |
 |------------------------------|--------------------------------------------------|
 | `BTWR_MANAGER_PORT`          | Override the default port (8765)                 |
-| `BTWR_MANAGER_NATIVE=1`      | Open in a pywebview window instead of a tab      |
+| `BTWR_MANAGER_NATIVE=1`      | Force a native pywebview window                  |
+| `BTWR_MANAGER_NATIVE=0`      | Force a browser tab, even from packaged `.app`   |
 | `BTWR_MANAGER_APP_SUPPORT`   | Override `~/Library/Application Support/...` for tests |
 
 ## Checks

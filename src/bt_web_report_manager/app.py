@@ -1,8 +1,8 @@
 """Application bootstrap.
 
-Boots NiceGUI in a browser tab by default. Set ``BTWR_MANAGER_NATIVE=1`` to
-open in a pywebview window instead. Single-page app at ``/`` — there are no
-other routes.
+Boots packaged .app builds in a pywebview window by default. Source runs use a
+browser tab unless ``BTWR_MANAGER_NATIVE=1`` is set. Single-page app at ``/``;
+there are no other routes.
 """
 
 from __future__ import annotations
@@ -10,6 +10,8 @@ from __future__ import annotations
 import multiprocessing
 import os
 import socket
+import sys
+from pathlib import Path
 
 from nicegui import ui
 
@@ -37,6 +39,20 @@ def _pick_port() -> int:
         return DEFAULT_PORT
 
 
+def _running_from_app_bundle(executable: Path | None = None) -> bool:
+    current_executable = (executable or Path(sys.executable)).resolve()
+    return any(
+        parent.suffix == ".app" and (parent / "Contents" / "MacOS").is_dir() for parent in current_executable.parents
+    )
+
+
+def _native_window_enabled() -> bool:
+    override = os.environ.get("BTWR_MANAGER_NATIVE")
+    if override is not None:
+        return override not in {"0", "false", "False", "no", "No"}
+    return _running_from_app_bundle()
+
+
 def run() -> int:
     multiprocessing.freeze_support()
 
@@ -46,7 +62,7 @@ def run() -> int:
     def index() -> None:
         build_page(state)
 
-    native = os.environ.get("BTWR_MANAGER_NATIVE") == "1"
+    native = _native_window_enabled()
     port = _pick_port()
 
     ui.run(

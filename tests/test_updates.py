@@ -1,6 +1,7 @@
 import pytest
 
 from bt_web_report_manager.updates import check_for_updates, compare_versions, latest_release
+from bt_web_report_manager.ui.updates import RETIRE_BROWSER_PAGE_SCRIPT
 
 
 @pytest.mark.parametrize(
@@ -126,6 +127,12 @@ def test_check_for_updates_handles_malformed_response(monkeypatch: pytest.Monkey
 
     assert not result.ok
     assert "not a list" in result.message
+
+
+def test_update_install_retire_script_closes_or_blanks_old_browser_tab() -> None:
+    assert "window.close()" in RETIRE_BROWSER_PAGE_SCRIPT
+    assert "about:blank" in RETIRE_BROWSER_PAGE_SCRIPT
+    assert "This tab can be closed" in RETIRE_BROWSER_PAGE_SCRIPT
 
 
 class _FakeResponse:

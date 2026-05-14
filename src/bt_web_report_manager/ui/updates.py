@@ -20,6 +20,20 @@ from bt_web_report_manager.update_installer import (
 )
 from bt_web_report_manager.updates import ReleaseInfo, UpdateCheckResult, check_for_updates
 
+RETIRE_BROWSER_PAGE_SCRIPT = """
+document.title = 'bt-web-report Manager updating';
+document.body.innerHTML = `
+  <main style="font: 15px -apple-system, BlinkMacSystemFont, sans-serif; padding: 32px;">
+    <h1 style="font-size: 20px; margin: 0 0 8px;">bt-web-report Manager is updating</h1>
+    <p style="color: #57534e; margin: 0;">The app is installing an update and relaunching. This tab can be closed.</p>
+  </main>
+`;
+setTimeout(() => {
+  window.close();
+  setTimeout(() => window.location.replace('about:blank'), 250);
+}, 100);
+"""
+
 
 async def run_update_check(settings: ManagerSettings, log: Callable[[str], None]) -> None:
     """Check GitHub Releases; log status; if newer release exists, open dialog."""
@@ -119,5 +133,13 @@ async def _download_and_install(release: ReleaseInfo, log: Callable[[str], None]
 
     log(f"Update helper started: {helper_path}")
     ui.notify("Manager will quit, install the update, and relaunch.", type="positive")
-    await asyncio.sleep(0.5)
+    await _retire_current_browser_page(log)
+    await asyncio.sleep(0.3)
     app.shutdown()
+
+
+async def _retire_current_browser_page(log: Callable[[str], None]) -> None:
+    try:
+        await ui.run_javascript(RETIRE_BROWSER_PAGE_SCRIPT, timeout=0.2)
+    except Exception:
+        log("Browser tab close was not confirmed; the old tab may need to be closed manually.")
