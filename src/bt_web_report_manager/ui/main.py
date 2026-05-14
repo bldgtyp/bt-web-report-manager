@@ -44,13 +44,17 @@ from bt_web_report_manager.ui.dialogs import (
     prompt_dialog,
 )
 from bt_web_report_manager.ui.helpers import (
-    client_building_label,
+    action_card_states,
+    badges_html,
     commit_disabled_reason,
     format_dt,
     git_label,
     lock_label,
-    lock_table_label,
     open_editor_disabled_reason,
+    ProjectMetric,
+    project_file_locations,
+    project_metrics,
+    project_row,
     scrape_disabled_reason,
     selected_disabled_reason,
     status_explanations,
@@ -82,12 +86,16 @@ def build_page(state: ManagerState) -> None:
     log_ref: dict[str, Any] = {}
     btns: dict[str, Any] = {}
     btn_tips: dict[str, Any] = {}
+    led_ref: dict[str, Any] = {}
+    log_lines: list[str] = []
+    current_screen = {"name": "index"}
 
     def log_message(text: str) -> None:
         ts = datetime.now().strftime("%H:%M:%S")
         log_widget = log_ref.get("widget")
         for line in text.splitlines() or [""]:
             stamped = f"[{ts}] {line}"
+            log_lines.append(stamped)
             if log_widget is not None:
                 log_widget.push(stamped)
             else:
@@ -168,142 +176,51 @@ def build_page(state: ManagerState) -> None:
 
         root_tag = ui.html("").classes("root-tag")
 
-    # ---- Body -------------------------------------------------------------
-    with ui.element("div").classes("app-body"):
-        # ----- Left pane: summary + table
-        with ui.element("div").classes("pane pane-left"):
-            with ui.element("div").classes("pane-header"):
-                ui.label("Projects").classes("pane-title")
-                last_refresh = ui.label("").classes("pane-meta")
-            summary_bar = ui.element("div").classes("summary-bar")
-            project_table_container = ui.element("div").classes("project-table")
-
-        # ----- Right pane: detail + actions + log
-        with ui.element("div").classes("pane pane-right"):
-            with ui.element("div").classes("pane-header"):
-                ui.label("Active project").classes("pane-title")
-                detail_kicker = ui.label("").classes("pane-meta")
-
-            with ui.element("div").classes("detail-section"):
-                detail_title = ui.label("No project selected").classes("detail-title")
-                detail_subtitle = ui.label("Pick a row to see details and unlock actions.").classes("detail-subtitle")
-
-            # Build the action cluster once; refresh only updates state/tooltip text.
-            # Passing ``color=None`` to ``ui.button`` strips Quasar's default
-            # ``bg-primary text-white`` / ``text-primary`` classes so our CSS controls
-            # every paint surface. ``no-caps`` keeps the label readable.
-            def _action_button(
-                key: str,
-                label: str,
-                icon: str,
-                handler: Any,
-                modifier: str = "",
-                tip_text: str | None = None,
-            ) -> None:
-                with (
-                    ui.button(label, icon=icon, color=None, on_click=handler)
-                    .props("flat unelevated no-caps")
-                    .classes(f"action-btn {modifier}".strip()) as button
-                ):
-                    btn_tips[key] = ui.tooltip(tip_text or ACTIVE_TOOLTIPS[key])
-                btns[key] = button
-
-            with ui.element("div").classes("action-grid") as action_section:
-                ui.label("Run").classes("action-group-label")
-                _action_button("scrape", "Scrape PHPP", "travel_explore", lambda: run_scrape(), "is-warning")
-                _action_button("dev", "Dev preview", "play_circle", lambda: run_dev_preview())
-
-                ui.label("Author").classes("action-group-label")
-                _action_button("editor", "Open editor (TinaCMS)", "edit_square", lambda: run_open_editor())
-                _action_button("code_editor", "Open code editor", "code", lambda: run_open_code_editor())
-
-                ui.label("Publish").classes("action-group-label")
-                _action_button("commit", "Commit & push", "upload", lambda: run_commit_push(), "is-primary")
-                _action_button("reveal", "Reveal in Finder", "folder_open", lambda: run_reveal())
-
-                ui.label("Process").classes("action-group-label")
-                _action_button("stop", "Stop", "stop_circle", lambda: on_stop(), "is-danger", "No command is running.")
-                _action_button(
-                    "copy_log",
-                    "Copy log",
-                    "content_copy",
-                    lambda: on_copy_log(),
-                    tip_text="Copy the action log to your clipboard.",
-                )
-
-            detail_body = (
-                ui.element("div").classes("detail-section").style("overflow: auto; max-height: 320px; flex-shrink: 0;")
-            )
-
-            with ui.element("div").classes("log-shell"):
-                with ui.element("div").classes("log-header"):
-                    led = ui.element("div").classes("led idle")
-                    ui.label("Action log").style("flex: 1;")
-                log_widget = ui.log(max_lines=4000).classes("nicegui-log").style("flex: 1; min-height: 180px;")
-                log_ref["widget"] = log_widget
+    screen_container = ui.element("div").classes("screen-root")
 
     # ---- Helpers ----------------------------------------------------------
     def running_led_set(is_running: bool) -> None:
-        led.classes(replace="led" if is_running else "led idle")
+        led = led_ref.get("widget")
+        if led is not None:
+            led.classes(replace="led" if is_running else "led idle")
 
-    def _badge_kind(badge: str) -> str:
-        low = badge.lower()
-        if low == "data current" or low == "git clean":
-            return "success"
-        if low.startswith("locked by you"):
-            return "accent"
-        if low.startswith("needs scrape") or low.startswith("dirty") or low.startswith("locked by"):
-            return "warning"
-        if "malformed" in low or "no data" in low or "no git" in low or "stale" in low or "warnings" in low:
-            return "danger"
-        return "neutral"
-
-    def _badges_html(badges: tuple[str, ...]) -> str:
-        return "".join(f'<span class="chip chip-{_badge_kind(b)}">{b}</span>' for b in badges)
-
-    def _project_row(project: ProjectStatus) -> dict[str, Any]:
-        return {
-            "name": project.metadata.project_title,
-            "slug": project.metadata.slug,
-            "client_building": client_building_label(project),
-            "phase": project.metadata.phase or "-",
-            "phpp": format_dt(project.phpp_modified_at),
-            "data": format_dt(project.manifest_generated_at),
-            "git": git_label(project),
-            "lock": lock_table_label(project),
-            "deploy": "Unknown",
-            "badges": ", ".join(project.badges),
-            "badges_html": _badges_html(project.badges),
-        }
-
-    def render_summary_and_table() -> None:
-        dirty = sum(1 for p in state.projects if p.git.dirty_count)
-        needs_scrape = sum(1 for p in state.projects if p.needs_scrape)
-        deploy_unknown = len(state.projects)
-        total = len(state.projects)
-
-        summary_bar.clear()
-        with summary_bar:
-            metrics = [
-                ("Projects", total),
-                ("Dirty git", dirty),
-                ("Need scrape", needs_scrape),
-                ("Deploy unknown", deploy_unknown),
-            ]
-            for i, (label, num) in enumerate(metrics):
-                if i > 0:
-                    ui.element("div").classes("divider")
-                with ui.element("div").classes("metric"):
-                    ui.html(f'<span class="num">{num}</span><span>{label}</span>')
-
+    def render_page() -> None:
         root_tag.content = f'<span style="color:#a8a29e;">root</span> &nbsp; {state.settings.projects_root}'
-        last_refresh.text = f"Last scan {datetime.now().strftime('%H:%M:%S')}"
+        btns.clear()
+        btn_tips.clear()
+        led_ref.clear()
+        log_ref.clear()
+        screen_container.clear()
+        if current_screen["name"] == "workspace" and state.selected_project() is not None:
+            render_workspace()
+        else:
+            current_screen["name"] = "index"
+            render_index()
+        refresh_action_state()
 
-        project_table_container.clear()
+    def render_index() -> None:
+        with screen_container:
+            with ui.element("div").classes("index-screen"):
+                with ui.element("div").classes("index-hero"):
+                    with ui.element("div"):
+                        ui.label("Projects").classes("index-title")
+                        ui.label("Portfolio scan, project setup, and entry point into one project workspace.").classes(
+                            "index-subtitle"
+                        )
+                    ui.label(f"Last scan {datetime.now().strftime('%H:%M:%S')}").classes("index-meta")
+
+                with ui.element("div").classes("summary-bar summary-bar-large"):
+                    metrics = [*project_metrics(state.projects), ProjectMetric("Deploy unknown", len(state.projects))]
+                    for i, metric in enumerate(metrics):
+                        if i > 0:
+                            ui.element("div").classes("divider")
+                        with ui.element("div").classes("metric"):
+                            ui.html(f'<span class="num">{metric.value}</span><span>{metric.label}</span>')
+
         if not state.projects:
-            with project_table_container:
+            with screen_container:
                 with ui.element("div").classes("empty-state"):
-                    ui.html('<div style="font-size:28px;">📁</div>')
+                    ui.icon("folder_off").style("font-size: 30px;")
                     ui.label("No projects discovered").classes("empty-title")
                     ui.label(
                         "No project.yaml files were found under the configured projects root or extra "
@@ -311,142 +228,197 @@ def build_page(state: ManagerState) -> None:
                     ).classes("empty-body")
             return
 
-        columns = [
-            {
-                "name": "name",
-                "label": "Name",
-                "field": "name",
-                "align": "left",
-                "sortable": True,
-                "style": "min-width: 140px;",
-            },
-            {
-                "name": "slug",
-                "label": "Slug",
-                "field": "slug",
-                "align": "left",
-                "classes": "col-mono",
-                "style": "min-width: 100px;",
-            },
-            {
-                "name": "client_building",
-                "label": "Client / Building",
-                "field": "client_building",
-                "align": "left",
-                "style": "min-width: 160px;",
-            },
-            {"name": "phase", "label": "Phase", "field": "phase", "align": "left", "style": "min-width: 80px;"},
-            {
-                "name": "phpp",
-                "label": "PHPP",
-                "field": "phpp",
-                "align": "left",
-                "classes": "col-mono",
-                "style": "min-width: 120px;",
-            },
-            {
-                "name": "data",
-                "label": "Data",
-                "field": "data",
-                "align": "left",
-                "classes": "col-mono",
-                "style": "min-width: 120px;",
-            },
-            {"name": "git", "label": "Git", "field": "git", "align": "left", "style": "min-width: 90px;"},
-            {"name": "lock", "label": "Lock", "field": "lock", "align": "left", "style": "min-width: 80px;"},
-            {"name": "deploy", "label": "Deploy", "field": "deploy", "align": "left", "style": "min-width: 80px;"},
-            {
-                "name": "badges",
-                "label": "Status",
-                "field": "badges",
-                "align": "left",
-                "style": "min-width: 180px; white-space: normal; max-width: none;",
-            },
-        ]
-        rows = [_project_row(p) for p in state.projects]
+        with screen_container:
+            ui.label("Click a project to open its workspace.").classes("section-note")
+            with ui.element("div").classes("project-list"):
+                with ui.element("div").classes("project-list-header"):
+                    for label in ("Name", "Slug", "Client / Building", "Phase", "PHPP", "Data", "Git", "Status"):
+                        ui.label(label)
+                for project in state.projects:
+                    row = project_row(project)
+                    with (
+                        ui.element("button")
+                        .classes("project-list-row")
+                        .on("click", lambda _e, slug=project.metadata.slug: open_workspace(slug))
+                    ):
+                        ui.label(row["name"]).classes("project-cell project-name")
+                        ui.label(row["slug"]).classes("project-cell col-mono")
+                        ui.label(row["client_building"]).classes("project-cell")
+                        ui.label(row["phase"]).classes("project-cell")
+                        ui.label(row["phpp"]).classes("project-cell col-mono")
+                        ui.label(row["data"]).classes("project-cell col-mono")
+                        ui.label(row["git"]).classes("project-cell")
+                        ui.html(row["badges_html"]).classes("project-cell project-status-cell")
 
-        with project_table_container:
-            table = (
-                ui.table(
-                    columns=columns,  # type: ignore[arg-type]
-                    rows=rows,
-                    row_key="slug",
-                    selection="single",
-                )
-                .props("flat dense bordered")
-                .classes("w-full")
-            )
+    def open_workspace(slug: str) -> None:
+        state.selected_slug = slug
+        current_screen["name"] = "workspace"
+        render_page()
 
-            table.add_slot(
-                "body-cell-badges",
-                r"""
-                <q-td :props="props">
-                    <span v-html="props.row.badges_html"></span>
-                </q-td>
-                """,
-            )
+    def back_to_index() -> None:
+        current_screen["name"] = "index"
+        render_page()
 
-            if state.selected_slug:
-                table.selected = [r for r in rows if r["slug"] == state.selected_slug]
-
-            def _on_select(_e: Any) -> None:
-                if table.selected:
-                    state.selected_slug = table.selected[0]["slug"]
-                else:
-                    state.selected_slug = None
-                render_detail_pane()
-                refresh_action_state()
-
-            table.on("selection", _on_select)
-
-    def render_detail_pane() -> None:
+    def render_workspace() -> None:
         project = state.selected_project()
-        detail_body.clear()
-
         if project is None:
-            detail_title.text = "No project selected"
-            detail_subtitle.text = "Pick a row to see details and unlock actions."
-            detail_kicker.text = ""
             return
+        with screen_container:
+            with ui.element("div").classes("workspace-screen"):
+                with ui.element("div").classes("breadcrumb-strip"):
+                    ui.button("All projects", icon="chevron_left", color=None, on_click=back_to_index).props(
+                        "flat unelevated no-caps"
+                    ).classes("breadcrumb-button")
+                    ui.label(f"{len(state.projects)} projects").classes("breadcrumb-meta")
+                    ui.label("/").classes("breadcrumb-meta")
+                    ui.label(project.metadata.project_title).classes("breadcrumb-current")
 
-        detail_title.text = project.metadata.project_title
-        detail_subtitle.text = f"{project.metadata.slug} · {project.project_path}"
-        detail_kicker.text = ", ".join(project.badges) or "—"
+                with ui.element("div").classes("project-identity"):
+                    with ui.element("div").classes("project-title-row"):
+                        ui.label(project.metadata.project_title).classes("workspace-title")
+                        ui.html(badges_html(project.badges)).classes("workspace-badges")
+                    with ui.element("div").classes("project-meta-row"):
+                        _meta_pill(project.metadata.slug)
+                        _meta_text("Client", project.metadata.client_name)
+                        _meta_text("Building", project.metadata.building_name)
+                        _meta_text("Phase", project.metadata.phase)
+                    with ui.element("div").classes("project-link-row"):
+                        if project.metadata.production_url:
+                            ui.icon("language").classes("inline-icon")
+                            ui.link(
+                                project.metadata.production_url, project.metadata.production_url, new_tab=True
+                            ).classes("project-url")
+                        ui.label(f"PHPP modified {format_dt(project.phpp_modified_at)}").classes("project-timestamp")
+                        ui.label(f"Data refreshed {format_dt(project.manifest_generated_at)}").classes(
+                            "project-timestamp"
+                        )
 
-        with detail_body:
-            with ui.element("div").classes("detail-section").style("padding: 0; border: none;"):
-                ui.label("Project").classes("section-label")
-                with ui.element("div").classes("kv-grid"):
-                    _kv("Path", str(project.project_path))
-                    _kv("Slug", project.metadata.slug)
-                    _kv("Client", project.metadata.client_name or "-")
-                    _kv("Building", project.metadata.building_name or "-")
-                    _kv("URL", project.metadata.production_url or "-")
-                    _kv("PHPP", str(project.metadata.phpp_path) if project.metadata.phpp_path else "-")
-                    _kv("Manifest", str(project.manifest_path) if project.manifest_path else "-")
+                with ui.element("div").classes("workspace-action-grid"):
+                    _action_group(
+                        "Run",
+                        "run",
+                        [
+                            ("scrape", "play_arrow", run_scrape, "is-warning"),
+                            ("dev", "flare", run_dev_preview, ""),
+                        ],
+                    )
+                    _action_group(
+                        "Author",
+                        "author",
+                        [
+                            ("editor", "edit_square", run_open_editor, ""),
+                            ("code_editor", "code", run_open_code_editor, ""),
+                        ],
+                    )
+                    _action_group(
+                        "Publish",
+                        "publish",
+                        [
+                            ("commit", "upload", run_commit_push, "is-primary"),
+                            ("reveal", "folder_open", run_reveal, ""),
+                        ],
+                    )
+                    _process_group()
 
-            with ui.element("div").classes("detail-section").style("padding: 14px 0 0 0;"):
-                ui.label("State").classes("section-label")
-                with ui.element("div").classes("kv-grid"):
-                    _kv("Git", git_label(project))
-                    _kv("Remote", project.git.remote or "-")
-                    _kv("Last commit", project.git.last_commit or "-")
-                    _kv("Lock", lock_label(project))
-                    _kv("Deploy", "unknown (Cloudflare polling not wired in v1)")
-
-            with ui.element("div").classes("detail-section").style("padding: 14px 0 0 0;"):
-                ui.label("Status").classes("section-label")
-                for line in status_explanations(project):
-                    ui.label(line).style("font-size: 12.5px; color: var(--text-2); line-height: 1.55;")
-
-            if project.warnings:
-                with ui.element("div").classes("detail-section").style("padding: 14px 0 0 0;"):
-                    ui.label("Warnings").classes("section-label")
-                    for warning in project.warnings:
-                        ui.label(f"- {warning}").style("font-size: 12.5px; color: var(--danger); line-height: 1.55;")
+                with ui.element("div").classes("workspace-lower-grid"):
+                    render_files_locations(project)
+                    render_action_log(project)
+                    render_status_notes(project)
 
     def _kv(key: str, value: str) -> None:
         ui.html(f'<div class="k">{key}</div><div class="v">{value}</div>')
+
+    def _meta_pill(value: str) -> None:
+        ui.label(value).classes("meta-pill")
+
+    def _meta_text(label: str, value: str | None) -> None:
+        if value:
+            ui.html(f'<span class="meta-label">{label}</span><span class="meta-value">{value}</span>')
+
+    def _action_group(label: str, marker: str, items: list[tuple[str, str, Any, str]]) -> None:
+        states = action_card_states(state.selected_project(), runner.is_running, state.selected_project() is not None)
+        with ui.element("div").classes("action-card-group"):
+            ui.label(label).classes(f"action-group-label marker-{marker}")
+            for key, icon, handler, modifier in items:
+                card_state = states[key]
+                _action_button(key, card_state.label, card_state.detail, icon, handler, modifier)
+
+    def _process_group() -> None:
+        with ui.element("div").classes("action-card-group"):
+            ui.label("Process").classes("action-group-label marker-process")
+            _action_button("stop", "Stop", "Stop running process", "stop_circle", on_stop, "is-danger")
+            _action_button("copy_log", "Copy log", "Copy current action log", "content_copy", on_copy_log, "")
+
+    def _action_button(key: str, label: str, detail: str, icon: str, handler: Any, modifier: str = "") -> None:
+        with (
+            ui.button(color=None, on_click=handler)
+            .props("flat unelevated no-caps")
+            .classes(f"action-btn action-card-button {modifier}".strip()) as button
+        ):
+            with ui.element("div").classes("action-button-inner"):
+                ui.icon(icon).classes("action-button-icon")
+                with ui.element("div").classes("action-button-text"):
+                    ui.label(label).classes("action-button-label")
+                    ui.label(detail).classes("action-button-detail")
+            btn_tips[key] = ui.tooltip(ACTIVE_TOOLTIPS.get(key, detail))
+        btns[key] = button
+
+    def render_files_locations(project: ProjectStatus) -> None:
+        with ui.element("div").classes("info-panel files-panel"):
+            with ui.element("div").classes("panel-header"):
+                ui.label("Files & locations").classes("panel-title")
+                ui.button(
+                    "Copy paths", icon="content_copy", color=None, on_click=lambda: copy_project_paths(project)
+                ).props("flat dense unelevated no-caps").classes("panel-tool")
+            for location in project_file_locations(project):
+                with ui.element("div").classes("file-row"):
+                    ui.label(location.kind).classes(f"file-kind file-kind-{location.kind.lower()}")
+                    with ui.element("div").classes("file-main"):
+                        ui.label(location.label).classes("file-label")
+                        ui.label(location.value).classes("file-value")
+                    ui.button(
+                        icon="content_copy", color=None, on_click=lambda loc=location: copy_text(loc.value)
+                    ).props("flat dense round").classes("icon-tool")
+
+    def render_action_log(project: ProjectStatus) -> None:
+        with ui.element("div").classes("log-shell workspace-log"):
+            with ui.element("div").classes("log-header"):
+                led = ui.element("div").classes("led" if runner.is_running else "led idle")
+                led_ref["widget"] = led
+                ui.label("Action log").style("flex: 1;")
+                ui.label(f"scoped · {project.metadata.slug}").classes("log-scope")
+            log_widget = ui.log(max_lines=4000).classes("nicegui-log").style("flex: 1; min-height: 210px;")
+            log_ref["widget"] = log_widget
+            for line in log_lines:
+                log_widget.push(line)
+
+    def render_status_notes(project: ProjectStatus) -> None:
+        with ui.element("div").classes("info-panel status-panel"):
+            ui.label("State").classes("panel-title")
+            with ui.element("div").classes("kv-grid"):
+                _kv("Git", git_label(project))
+                _kv("Remote", project.git.remote or "-")
+                _kv("Last commit", project.git.last_commit or "-")
+                _kv("Lock", lock_label(project))
+                _kv("Deploy", "unknown (Cloudflare polling not wired in v1)")
+            ui.label("Status").classes("section-label").style("margin-top: 12px;")
+            for line in status_explanations(project):
+                ui.label(line).style("font-size: 12.5px; color: var(--text-2); line-height: 1.55;")
+            if project.warnings:
+                ui.label("Warnings").classes("section-label").style("margin-top: 12px;")
+                for warning in project.warnings:
+                    ui.label(f"- {warning}").style("font-size: 12.5px; color: var(--danger); line-height: 1.55;")
+
+    def copy_text(text: str) -> None:
+        try:
+            pyperclip.copy(text)
+            log_message("Copied to clipboard.")
+        except pyperclip.PyperclipException as exc:
+            log_message(f"Clipboard unavailable: {exc}")
+            ui.notify("Clipboard unavailable on this machine.", type="warning")
+
+    def copy_project_paths(project: ProjectStatus) -> None:
+        copy_text("\n".join(location.value for location in project_file_locations(project)))
 
     def refresh_action_state() -> None:
         project = state.selected_project()
@@ -486,10 +458,7 @@ def build_page(state: ManagerState) -> None:
 
         state.projects = await asyncio.to_thread(discover_projects, state.settings)
         state.select_project_by_path(selected_path)
-        state.select_first_if_unset()
-        render_summary_and_table()
-        render_detail_pane()
-        refresh_action_state()
+        render_page()
 
     async def prepare_mutating_action(project: ProjectStatus) -> bool:
         lock = read_lock(project.project_path)
@@ -579,11 +548,7 @@ def build_page(state: ManagerState) -> None:
         runner.stop()
 
     def on_copy_log() -> None:
-        widget = log_ref.get("widget")
-        if widget is None:
-            return
-        lines = getattr(widget, "lines", None) or []
-        text = "\n".join(lines)
+        text = "\n".join(log_lines)
         try:
             pyperclip.copy(text)
             log_message("Action log copied to clipboard.")
@@ -628,6 +593,7 @@ def build_page(state: ManagerState) -> None:
     ui.timer(LOCK_REFRESH_INTERVAL_SECONDS, refresh_owned_locks)
 
     # Initial update check + project load via timers (preserves slot context)
+    render_page()
     ui.timer(0.05, refresh_projects, once=True)
     ui.timer(0.25, on_check_updates, once=True)
 

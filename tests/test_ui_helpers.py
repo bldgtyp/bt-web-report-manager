@@ -16,8 +16,13 @@ import yaml
 from bt_web_report_manager.models import ManagerSettings
 from bt_web_report_manager.projects import read_project_status
 from bt_web_report_manager.ui.helpers import (
+    action_card_states,
+    badge_kind,
     commit_disabled_reason,
     open_editor_disabled_reason,
+    project_file_locations,
+    project_metrics,
+    project_row,
     scrape_disabled_reason,
     selected_disabled_reason,
     status_explanations,
@@ -83,6 +88,61 @@ def test_status_explanations_call_out_needed_scrape(tmp_path: Path) -> None:
 
 def test_selected_disabled_reason_without_selection() -> None:
     assert selected_disabled_reason(None, running=False, enabled=False) == "Disabled: no project selected."
+
+
+def test_project_metrics_count_portfolio_status(tmp_path: Path) -> None:
+    project = _make_project(tmp_path, with_phpp=True)
+    settings = ManagerSettings(projects_root=tmp_path)
+    status = read_project_status(project, settings)
+
+    metrics = {metric.label: metric.value for metric in project_metrics([status])}
+
+    assert metrics == {"Projects": 1, "Dirty git": 0, "Need scrape": 1, "Warnings": 0}
+
+
+def test_project_row_keeps_current_table_contract(tmp_path: Path) -> None:
+    project = _make_project(tmp_path, with_phpp=True)
+    settings = ManagerSettings(projects_root=tmp_path)
+    status = read_project_status(project, settings)
+
+    row = project_row(status)
+
+    assert row["name"] == "Sample Project"
+    assert row["slug"] == "sample"
+    assert row["client_building"] == "Client / Building"
+    assert "No data" in row["badges"]
+    assert 'class="chip chip-danger"' in row["badges_html"]
+
+
+def test_badge_kind_classifies_semantic_states() -> None:
+    assert badge_kind("Data current") == "success"
+    assert badge_kind("Dirty (2)") == "warning"
+    assert badge_kind("Locked by you") == "accent"
+    assert badge_kind("No git") == "danger"
+
+
+def test_action_card_states_preserve_disabled_reasons(tmp_path: Path) -> None:
+    project = _make_project(tmp_path, with_phpp=True)
+    settings = ManagerSettings(projects_root=tmp_path)
+    status = read_project_status(project, settings)
+
+    states = action_card_states(status, running=False, enabled=True)
+
+    assert states["scrape"].enabled
+    assert states["commit"].enabled is False
+    assert "clean" in states["commit"].tooltip
+
+
+def test_project_file_locations_include_expected_workspace_paths(tmp_path: Path) -> None:
+    project = _make_project(tmp_path, with_phpp=True)
+    settings = ManagerSettings(projects_root=tmp_path)
+    status = read_project_status(project, settings)
+
+    locations = {location.key: location for location in project_file_locations(status)}
+
+    assert locations["web_root"].path == project
+    assert locations["phpp"].kind == "XLSX"
+    assert locations["manifest"].value.endswith("data/manifest.json")
 
 
 def _make_project(tmp_path: Path, *, with_phpp: bool) -> Path:

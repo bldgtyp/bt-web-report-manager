@@ -74,11 +74,15 @@ temporary folder.
 
 - **Toolbar**: New project (wizard), Refresh, Settings, System Check, Check
   updates. Keyboard shortcuts: ⌘N, ⌘R, ⌘,.
-- **Projects table** (left pane): name, slug, client/building, phase, PHPP
-  mtime, manifest mtime, git state, lock owner, deploy state, status chips.
-- **Detail pane** (right pane, top): metadata + state kv-grid and per-
-  project status explanations.
-- **Action cluster**: grouped Run / Author / Publish / Process.
+- **Project Index**: the default screen for portfolio scanning, setup, and
+  navigation. It shows project metrics plus a dense project list with name,
+  slug, client/building, phase, PHPP mtime, manifest mtime, git state, and
+  status chips. Workflow actions are intentionally kept off this screen.
+- **Project Workspace**: opens from a project row and focuses on one project.
+  It shows breadcrumb navigation, project metadata, status chips, files and
+  locations, a scoped action log, and project state/status explanations.
+- **Action cluster**: grouped Run / Author / Publish / Process in the Project
+  Workspace.
   - **Scrape**: `btwr scrape <project>` — writes a Dropbox lock first
   - **Dev preview**: `pnpm dev` — long-running, writes a lock
   - **Open editor (TinaCMS)**: `pnpm dev:editor` — long-running, writes a

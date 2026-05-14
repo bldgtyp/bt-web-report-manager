@@ -50,6 +50,7 @@ def _settings_from_mapping(raw: dict[str, Any]) -> ManagerSettings:
         editor_command=str(raw.get("editor_command", "code")),
         github_owner=str(raw.get("github_owner", "bldgtyp")),
         github_repo=str(raw.get("github_repo", "bt-web-report-manager")),
+        project_github_owner=str(raw.get("project_github_owner", "bldgtyp-projects")),
         lock_ttl_hours=int(raw.get("lock_ttl_hours", 4)),
     )
 
@@ -65,6 +66,7 @@ def _settings_to_mapping(settings: ManagerSettings) -> dict[str, Any]:
         "editor_command": settings.editor_command,
         "github_owner": settings.github_owner,
         "github_repo": settings.github_repo,
+        "project_github_owner": settings.project_github_owner,
         "lock_ttl_hours": settings.lock_ttl_hours,
     }
 

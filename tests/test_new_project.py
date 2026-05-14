@@ -28,8 +28,11 @@ def test_build_new_project_plan_accepts_valid_inputs(tmp_path: Path) -> None:
 
     assert plan.slug == "2606-vandam"
     assert plan.repo_name == "bt-proj-2606-vandam"
+    assert plan.repo_owner == "bldgtyp-projects"
     assert plan.production_url == "https://2606-vandam.bldgtyp.com"
-    assert "Phase 7 dependency" in "\n".join(plan.manual_checklist())
+    checklist = "\n".join(plan.manual_checklist())
+    assert "Phase 7 dependency" in checklist
+    assert "bldgtyp-projects/bt-proj-2606-vandam" in checklist
 
 
 def test_build_new_project_plan_rejects_invalid_contract(tmp_path: Path) -> None:

@@ -28,6 +28,7 @@ class ManagerSettings:
     editor_command: str = "code"
     github_owner: str = "bldgtyp"
     github_repo: str = "bt-web-report-manager"
+    project_github_owner: str = "bldgtyp-projects"
     lock_ttl_hours: int = 4
 
 

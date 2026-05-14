@@ -179,6 +179,14 @@ async def open_settings_dialog(state: ManagerState, on_save: Callable[[], Awaita
                     .tooltip("Repo name to poll for manager updates.")
                 )
 
+            ui.label("Project repositories").classes("dialog-section-label")
+            project_gh_owner = (
+                ui.input("Project GitHub owner", value=settings.project_github_owner)
+                .props("outlined dense")
+                .classes("w-full")
+                .tooltip("Owner/org for per-project bt-proj-* repos. Defaults to bldgtyp-projects.")
+            )
+
             ui.label("Locks").classes("dialog-section-label")
             ttl = (
                 ui.number(
@@ -217,6 +225,7 @@ async def open_settings_dialog(state: ManagerState, on_save: Callable[[], Awaita
         editor_command=(editor_cmd.value or "code").strip(),
         github_owner=(gh_owner.value or "bldgtyp").strip(),
         github_repo=(gh_repo.value or "bt-web-report-manager").strip(),
+        project_github_owner=(project_gh_owner.value or "bldgtyp-projects").strip(),
         lock_ttl_hours=int(ttl.value or 4),
     )
     save_settings(state.settings)

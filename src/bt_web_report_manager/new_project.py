@@ -27,6 +27,7 @@ class NewProjectPlan:
     target_web_path: Path
     phpp_path: Path | None
     repo_name: str
+    repo_owner: str
     production_url: str
 
     @property
@@ -46,7 +47,7 @@ class NewProjectPlan:
             f"Local folder: {self.local_folder}",
             f"Target 04_Web path: {self.target_web_path}",
             f"PHPP workbook: {phpp}",
-            f"GitHub repo: {self.repo_name}",
+            f"GitHub repo: {self.repo_owner}/{self.repo_name}",
             f"Production URL: {self.production_url}",
         ]
 
@@ -62,7 +63,7 @@ class NewProjectPlan:
             "Manual checklist:",
             f"1. Create or verify project folder: {self.local_folder}",
             f"2. Create target web folder: {self.target_web_path}",
-            f"3. Create private GitHub repo: bldgtyp/{self.repo_name}",
+            f"3. Create private GitHub repo: {self.repo_owner}/{self.repo_name}",
             "4. Clone bt-web-report-template into the target web folder.",
             "5. Write project.yaml with the metadata shown above.",
             f"6. {phpp_line}",
@@ -84,6 +85,7 @@ def build_new_project_plan(
     phpp_path: Path | None,
     repo_name: str,
     production_url: str,
+    repo_owner: str = "bldgtyp-projects",
 ) -> NewProjectPlan:
     plan = NewProjectPlan(
         project_title=project_title.strip(),
@@ -95,6 +97,7 @@ def build_new_project_plan(
         target_web_path=target_web_path.expanduser(),
         phpp_path=phpp_path.expanduser() if phpp_path is not None else None,
         repo_name=repo_name.strip(),
+        repo_owner=repo_owner.strip(),
         production_url=production_url.strip(),
     )
     errors = validate_new_project_plan(plan)
@@ -134,6 +137,8 @@ def validate_new_project_plan(plan: NewProjectPlan) -> list[str]:
             errors.append("PHPP workbook must be an .xlsx or .xlsm file.")
     if not REPO_RE.fullmatch(plan.repo_name):
         errors.append("Repo name can only use letters, numbers, hyphens, underscores, and periods.")
+    if not REPO_RE.fullmatch(plan.repo_owner):
+        errors.append("Repo owner can only use letters, numbers, hyphens, underscores, and periods.")
     if plan.repo_name != f"bt-proj-{plan.slug}":
         errors.append(f"Repo name must be bt-proj-{plan.slug}.")
     parsed = urlparse(plan.production_url)

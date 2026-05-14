@@ -61,6 +61,7 @@ async def open_new_project_wizard(
                 target_web_path=Path(info_fields["target_web_path"].value or ""),
                 phpp_path=Path(phpp_text) if phpp_text else None,
                 repo_name=info_fields["repo_name"].value or "",
+                repo_owner=state.settings.project_github_owner,
                 production_url=info_fields["production_url"].value or "",
             )
 
@@ -117,7 +118,9 @@ async def open_new_project_wizard(
                             ui.input("Repo name")
                             .props("outlined dense")
                             .classes("flex-1")
-                            .tooltip("Will be created under bldgtyp/. Format: bt-proj-<slug>.")
+                            .tooltip(
+                                f"Will be created under {state.settings.project_github_owner}/. Format: bt-proj-<slug>."
+                            )
                         )
                         info_fields["production_url"] = (
                             ui.input("Production URL", placeholder="https://<slug>.bldgtyp.com")

@@ -36,6 +36,7 @@ def test_build_new_project_plan_produces_summary_and_manual_checklist(tmp_path: 
     checklist = plan.manual_checklist()
 
     assert any("Project title: Project" in line for line in summary)
+    assert any("GitHub repo: bldgtyp-projects/bt-proj-project" in line for line in summary)
     assert any("Phase 7 dependency: btwr new is not implemented" in line for line in checklist)
     assert any(f"Create target web folder: {local_folder / '04_Web'}" in line for line in checklist)
 
