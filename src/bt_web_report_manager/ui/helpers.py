@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from html import escape
 from pathlib import Path
 
 from bt_web_report_manager.models import ProjectStatus
@@ -95,8 +96,45 @@ def badge_kind(badge: str) -> str:
     return "neutral"
 
 
+def badge_tooltip(badge: str) -> str:
+    low = badge.lower()
+    if low == "data current":
+        return "PHPP data has been scraped and the data manifest is current."
+    if low == "git clean":
+        return "Git worktree has no uncommitted changes."
+    if low.startswith("dirty"):
+        return (
+            "Git worktree has uncommitted changes. Count comes from git status and includes staged, "
+            "unstaged, and untracked entries."
+        )
+    if low == "needs scrape":
+        return "PHPP workbook is newer than the data manifest; run Scrape PHPP before previewing or publishing."
+    if low == "no data":
+        return "No scraped data manifest exists yet; run Scrape PHPP."
+    if low == "no git":
+        return "Project folder is not a git worktree; Commit & push is unavailable."
+    if low.startswith("locked by you"):
+        return "You hold the project write lock."
+    if low.startswith("locked by"):
+        return "Another user holds the project write lock."
+    if "stale" in low:
+        return "Project write lock has expired or needs refresh."
+    if "malformed" in low:
+        return "Project write lock file could not be parsed."
+    if low == "warnings":
+        return "Project status has warnings; review the status detail before relying on this project."
+    return badge
+
+
 def badges_html(badges: tuple[str, ...]) -> str:
-    return "".join(f'<span class="chip chip-{badge_kind(badge)}">{badge}</span>' for badge in badges)
+    items: list[str] = []
+    for badge in badges:
+        tooltip = escape(badge_tooltip(badge), quote=True)
+        items.append(
+            f'<span class="chip chip-{badge_kind(badge)}" title="{tooltip}" aria-label="{tooltip}">'
+            f"{escape(badge)}</span>"
+        )
+    return "".join(items)
 
 
 def client_building_label(project: ProjectStatus) -> str:

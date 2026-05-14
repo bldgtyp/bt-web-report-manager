@@ -18,6 +18,7 @@ from bt_web_report_manager.projects import read_project_status
 from bt_web_report_manager.ui.helpers import (
     action_card_states,
     badge_kind,
+    badge_tooltip,
     commit_disabled_reason,
     open_editor_disabled_reason,
     project_file_locations,
@@ -107,6 +108,13 @@ def test_badge_kind_classifies_semantic_states() -> None:
     assert badge_kind("Dirty (2)") == "warning"
     assert badge_kind("Locked by you") == "accent"
     assert badge_kind("No git") == "danger"
+
+
+def test_dirty_badge_tooltip_explains_git_count() -> None:
+    tooltip = badge_tooltip("Dirty (10)")
+
+    assert "Git worktree has uncommitted changes" in tooltip
+    assert "staged, unstaged, and untracked" in tooltip
 
 
 def test_action_card_states_preserve_disabled_reasons(tmp_path: Path) -> None:
