@@ -8,11 +8,12 @@ from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from pathlib import Path
 
+import pyperclip  # type: ignore[import-untyped]
 from nicegui import ui
 
-from bt_web_report_manager.commands import doctor
 from bt_web_report_manager.models import ManagerSettings, ToolStatus
 from bt_web_report_manager.settings import save_settings, workspace_btwr_executable
+from bt_web_report_manager.support import support_summary, system_statuses
 from bt_web_report_manager.trace import trace_event, trace_log_path
 from bt_web_report_manager.ui.state import ManagerState
 
@@ -324,8 +325,10 @@ async def open_settings_dialog(state: ManagerState, on_save: Callable[[], Awaita
     state.settings = ManagerSettings(
         projects_root=Path(projects_root.value or "~/Dropbox/bldgtyp").expanduser(),
         extra_project_paths=extra,
+        hidden_project_paths=settings.hidden_project_paths,
         btwr_executable=(btwr_exe.value or "btwr").strip(),
         pnpm_executable=(pnpm_exe.value or "pnpm").strip(),
+        renderer_source=settings.renderer_source,
         git_executable=(git_exe.value or "git").strip(),
         gh_executable=(gh_exe.value or "gh").strip(),
         editor_command=(editor_cmd.value or "code").strip(),
@@ -345,7 +348,7 @@ async def open_doctor_dialog(state: ManagerState) -> None:
     trace_event("ui.doctor.open", settings=state.settings, trace_log_path=trace_log_path())
     dialog = ui.dialog()
 
-    statuses: list[ToolStatus] = await asyncio.to_thread(doctor, state.settings)
+    statuses: list[ToolStatus] = await asyncio.to_thread(system_statuses, state.settings)
     workspace_btwr = workspace_btwr_executable()
     trace_event(
         "ui.doctor.statuses_loaded",
@@ -423,6 +426,36 @@ async def open_doctor_dialog(state: ManagerState) -> None:
             trace_event("ui.doctor.setup_guide.clicked")
             await open_partner_setup_dialog(state)
 
+        def _copy_trace_path() -> None:
+            path = str(trace_log_path())
+            trace_event("ui.doctor.copy_trace_path.clicked", path=path)
+            _copy_to_clipboard(path, success="Trace log path copied.")
+
+        def _copy_support_summary() -> None:
+            text = support_summary(state.settings, statuses)
+            trace_event("ui.doctor.copy_support_summary.clicked", line_count=len(text.splitlines()))
+            _copy_to_clipboard(text, success="Support summary copied.")
+
+        def _copy_latest_trace() -> None:
+            path = trace_log_path()
+            trace_event("ui.doctor.copy_latest_trace.clicked", path=path)
+            try:
+                text = path.read_text()[-40_000:]
+            except OSError as exc:
+                trace_event("ui.doctor.copy_latest_trace.failed", path=path, error=str(exc))
+                ui.notify(f"Could not read trace log: {exc}", type="warning", multi_line=True)
+                return
+            _copy_to_clipboard(text, success="Latest trace copied.")
+
+        def _reveal_trace() -> None:
+            path = trace_log_path()
+            trace_event("ui.doctor.reveal_trace.clicked", path=path)
+            try:
+                subprocess.Popen(["open", "-R", str(path)])
+            except OSError as exc:
+                trace_event("ui.doctor.reveal_trace.failed", path=path, error=str(exc))
+                ui.notify(f"Could not reveal trace log: {exc}", type="warning", multi_line=True)
+
         def _close_doctor() -> None:
             trace_event("ui.doctor.close.clicked")
             dialog.close()
@@ -435,19 +468,43 @@ async def open_doctor_dialog(state: ManagerState) -> None:
             ).props(
                 "flat unelevated no-caps"
             ).classes("action-btn")
-            ui.button(
-                "Close",
-                on_click=_close_doctor,
-                color=None,
-            ).props(
-                "flat unelevated no-caps"
-            ).classes("action-btn is-primary")
+            with ui.row().classes("items-center gap-2"):
+                ui.button("Copy summary", on_click=_copy_support_summary, color=None).props(
+                    "flat unelevated no-caps"
+                ).classes("action-btn")
+                ui.button("Copy latest trace", on_click=_copy_latest_trace, color=None).props(
+                    "flat unelevated no-caps"
+                ).classes("action-btn")
+                ui.button("Copy trace path", on_click=_copy_trace_path, color=None).props(
+                    "flat unelevated no-caps"
+                ).classes("action-btn")
+                ui.button("Reveal trace", on_click=_reveal_trace, color=None).props("flat unelevated no-caps").classes(
+                    "action-btn"
+                )
+                ui.button(
+                    "Close",
+                    on_click=_close_doctor,
+                    color=None,
+                ).props(
+                    "flat unelevated no-caps"
+                ).classes("action-btn is-primary")
 
     await dialog
 
 
 def _can_repair_btwr(status: ToolStatus, workspace_btwr: str | None) -> bool:
     return bool(status.name == "btwr" and not status.ok and workspace_btwr and status.executable != workspace_btwr)
+
+
+def _copy_to_clipboard(text: str, *, success: str) -> None:
+    try:
+        pyperclip.copy(text)
+    except pyperclip.PyperclipException as exc:
+        trace_event("ui.clipboard.failed", error=str(exc))
+        ui.notify(f"Clipboard failed: {exc}", type="warning", multi_line=True)
+        return
+    trace_event("ui.clipboard.copied", length=len(text))
+    ui.notify(success, type="positive")
 
 
 async def open_partner_setup_dialog(state: ManagerState) -> None:

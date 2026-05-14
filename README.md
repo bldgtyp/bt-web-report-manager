@@ -124,8 +124,11 @@ value, the shared Dropbox workspace `.venv/bin`, and standard macOS Homebrew /
 VS Code command paths so Finder-launched `.app` builds can resolve the same
 tools as terminal launches.
 
-Missing tools surface as warnings in the action log and as System Check
-findings rather than crashing the GUI.
+Missing tools surface as warnings in System Check and the trace log rather
+than crashing the GUI. System Check covers the writable app-support folder,
+Dropbox project root, optional renderer source, `btwr doctor`, `pnpm`,
+`node`, the Python runtime, `uv`, `git`, `gh`, `gh auth status`, and the
+configured editor.
 
 ## Trace log
 
@@ -134,7 +137,9 @@ The Manager writes a rotating support trace at
 System Check shows this path. The trace records app startup, settings
 load/save, executable search paths, System Check rows, project discovery, git
 and lock status, New-project picker/default/build steps, command arguments,
-process output, and failures.
+process output, and failures. System Check can copy a support summary, copy
+the latest trace tail, copy the trace path, or reveal the trace in Finder for
+internal support handoff.
 
 ## Partner setup
 

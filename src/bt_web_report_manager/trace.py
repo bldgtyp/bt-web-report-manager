@@ -9,9 +9,14 @@ from __future__ import annotations
 
 import logging
 import os
+import platform
+import sys
+import uuid
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
+
+from bt_web_report_manager import __version__
 
 APP_SUPPORT_ENV = "BTWR_MANAGER_APP_SUPPORT"
 TRACE_LOG_ENV = "BTWR_MANAGER_TRACE_LOG"
@@ -19,6 +24,7 @@ TRACE_LOG_ENV = "BTWR_MANAGER_TRACE_LOG"
 LOGGER_NAME = "bt_web_report_manager.trace"
 DEFAULT_MAX_BYTES = 2_000_000
 DEFAULT_BACKUP_COUNT = 5
+SESSION_ID = uuid.uuid4().hex
 
 
 def trace_log_path() -> Path:
@@ -50,6 +56,17 @@ def configure_trace_logging() -> Path:
     return path
 
 
+def trace_runtime_context() -> None:
+    trace_event(
+        "trace.runtime_context",
+        app_version=__version__,
+        session_id=SESSION_ID,
+        platform=platform.platform(),
+        python=sys.version.replace("\n", " "),
+        executable=sys.executable,
+    )
+
+
 def trace_event(event: str, **fields: Any) -> None:
     try:
         configure_trace_logging()
@@ -70,6 +87,8 @@ def trace_exception(event: str, exc: BaseException, **fields: Any) -> None:
 
 def _format_fields(fields: dict[str, Any]) -> str:
     parts = []
+    if "session_id" not in fields:
+        parts.append(f"session_id={_format_value(SESSION_ID)}")
     for key in sorted(fields):
         parts.append(f"{key}={_format_value(fields[key])}")
     return " ".join(parts)

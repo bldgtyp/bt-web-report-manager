@@ -17,7 +17,7 @@ from nicegui import app as nicegui_app
 from nicegui import ui
 
 from bt_web_report_manager.settings import load_settings
-from bt_web_report_manager.trace import configure_trace_logging, trace_event
+from bt_web_report_manager.trace import configure_trace_logging, trace_event, trace_runtime_context
 from bt_web_report_manager.ui.main import build_page
 from bt_web_report_manager.ui.state import ManagerState
 
@@ -77,6 +77,7 @@ def _configure_native_window(native: bool) -> None:
 def run() -> int:
     multiprocessing.freeze_support()
     trace_path = configure_trace_logging()
+    trace_runtime_context()
     trace_event(
         "app.start",
         executable=sys.executable,

@@ -113,3 +113,11 @@ def test_resolve_executable_uses_manager_search_path(monkeypatch: MonkeyPatch, t
     monkeypatch.setenv("PATH", str(bin_dir))
 
     assert resolve_executable("tool") == str(executable)
+
+
+def test_resolve_executable_rejects_non_executable_explicit_path(tmp_path: Path) -> None:
+    candidate = tmp_path / "tool"
+    candidate.write_text("#!/bin/sh\nexit 0\n")
+    candidate.chmod(0o644)
+
+    assert resolve_executable(str(candidate)) is None

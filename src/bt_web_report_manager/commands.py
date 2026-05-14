@@ -74,7 +74,7 @@ def resolve_executable(executable: str) -> str | None:
             exists=expanded.exists(),
             executable_ok=ok,
         )
-        return str(expanded) if expanded.exists() else None
+        return str(expanded) if ok else None
     search_paths = executable_search_paths()
     for directory in search_paths:
         candidate = Path(directory) / executable
