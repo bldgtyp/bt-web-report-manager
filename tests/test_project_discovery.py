@@ -21,6 +21,17 @@ def test_discover_standard_and_extra_project_paths(tmp_path: Path) -> None:
     assert [status.metadata.slug for status in statuses] == ["project-a", "project-b"]
 
 
+def test_discover_projects_skips_hidden_project_paths(tmp_path: Path) -> None:
+    visible = _make_project(tmp_path / "projects" / "Project A" / "04_Web", "project-a")
+    hidden = _make_project(tmp_path / "projects" / "Project B" / "04_Web", "project-b")
+    settings = ManagerSettings(projects_root=tmp_path / "projects", hidden_project_paths=(hidden,))
+
+    statuses = discover_projects(settings)
+
+    assert [status.project_path for status in statuses] == [visible]
+    assert [status.metadata.slug for status in statuses] == ["project-a"]
+
+
 def test_project_status_detects_no_data_and_git_dirty(tmp_path: Path) -> None:
     project = _make_project(tmp_path / "Project" / "04_Web", "project")
     subprocess.run(["git", "init"], cwd=project, check=True, capture_output=True)

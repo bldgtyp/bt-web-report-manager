@@ -6,6 +6,7 @@ from bt_web_report_manager.settings import (
     load_settings,
     save_settings,
     settings_write_status,
+    unhide_project_path,
     workspace_btwr_executable,
 )
 
@@ -15,6 +16,7 @@ def test_settings_round_trip(tmp_path: Path) -> None:
     settings = ManagerSettings(
         projects_root=tmp_path / "projects",
         extra_project_paths=(tmp_path / "extra",),
+        hidden_project_paths=(tmp_path / "projects" / "Archived" / "04_Web",),
         btwr_executable="/tmp/btwr",
         renderer_source=tmp_path / "renderer",
         project_github_owner="bldgtyp-projects",
@@ -26,6 +28,7 @@ def test_settings_round_trip(tmp_path: Path) -> None:
     loaded = load_settings(path)
     assert loaded.projects_root == tmp_path / "projects"
     assert loaded.extra_project_paths == (tmp_path / "extra",)
+    assert loaded.hidden_project_paths == (tmp_path / "projects" / "Archived" / "04_Web",)
     assert loaded.btwr_executable == "/tmp/btwr"
     assert loaded.renderer_source == tmp_path / "renderer"
     assert loaded.project_github_owner == "bldgtyp-projects"
@@ -35,6 +38,34 @@ def test_settings_round_trip(tmp_path: Path) -> None:
 def test_settings_write_status(tmp_path: Path) -> None:
     status = settings_write_status(tmp_path / "support")
     assert status.ok
+
+
+def test_unhide_project_path_removes_matching_resolved_path(tmp_path: Path) -> None:
+    project = tmp_path / "projects" / "2606 29 Vandam St" / "04_Web"
+    other = tmp_path / "projects" / "Archived" / "04_Web"
+    settings = ManagerSettings(
+        projects_root=tmp_path / "projects",
+        hidden_project_paths=(project, other),
+    )
+
+    updated = unhide_project_path(settings, project)
+
+    assert updated.hidden_project_paths == (other,)
+
+
+def test_unhide_project_path_preserves_settings_when_path_is_visible(tmp_path: Path) -> None:
+    hidden = tmp_path / "projects" / "Archived" / "04_Web"
+    visible = tmp_path / "projects" / "2606 29 Vandam St" / "04_Web"
+    settings = ManagerSettings(
+        projects_root=tmp_path / "projects",
+        hidden_project_paths=(hidden,),
+        btwr_executable="/tmp/btwr",
+        lock_ttl_hours=2,
+    )
+
+    updated = unhide_project_path(settings, visible)
+
+    assert updated is settings
 
 
 def test_missing_settings_uses_available_default_btwr(tmp_path: Path) -> None:

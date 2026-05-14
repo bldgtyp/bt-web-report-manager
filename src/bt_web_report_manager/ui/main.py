@@ -8,6 +8,7 @@ releasing locks. All UI state lives in ``ManagerState`` (in ``state.py``).
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,7 @@ from bt_web_report_manager.locks import (
 )
 from bt_web_report_manager.models import ProjectStatus
 from bt_web_report_manager.projects import discover_projects
+from bt_web_report_manager.settings import save_settings
 from bt_web_report_manager.ui.dialogs import (
     confirm_dialog,
     open_doctor_dialog,
@@ -255,28 +257,36 @@ def build_page(state: ManagerState) -> None:
             ui.label("Click a project to open its workspace.").classes("section-note")
             with ui.element("div").classes("project-list"):
                 with ui.element("div").classes("project-list-header"):
-                    for label in ("Name", "Slug", "Client / Building", "Phase", "PHPP", "Data", "Git", "Status"):
+                    for label in ("Name", "Slug", "Client / Building", "Phase", "PHPP", "Data", "Git", "Status", ""):
                         ui.label(label)
                 for project in state.projects:
                     row = project_row(project)
-                    with (
-                        ui.element("button")
-                        .classes("project-list-row")
-                        .on("click", lambda _e, slug=project.metadata.slug: open_workspace(slug))
-                    ):
-                        ui.label(row["name"]).classes("project-cell project-name")
-                        ui.label(row["slug"]).classes("project-cell col-mono")
-                        ui.label(row["client_building"]).classes("project-cell")
-                        ui.label(row["phase"]).classes("project-cell")
-                        ui.label(row["phpp"]).classes("project-cell col-mono")
-                        ui.label(row["data"]).classes("project-cell col-mono")
-                        ui.label(row["git"]).classes("project-cell")
-                        ui.html(row["badges_html"]).classes("project-cell project-status-cell")
+                    with ui.element("div").classes("project-list-row"):
+                        _project_cell(row["name"], "project-cell project-name", project.metadata.slug)
+                        _project_cell(row["slug"], "project-cell col-mono", project.metadata.slug)
+                        _project_cell(row["client_building"], "project-cell", project.metadata.slug)
+                        _project_cell(row["phase"], "project-cell", project.metadata.slug)
+                        _project_cell(row["phpp"], "project-cell col-mono", project.metadata.slug)
+                        _project_cell(row["data"], "project-cell col-mono", project.metadata.slug)
+                        _project_cell(row["git"], "project-cell", project.metadata.slug)
+                        ui.html(row["badges_html"]).classes("project-cell project-status-cell").on(
+                            "click", lambda _e, slug=project.metadata.slug: open_workspace(slug)
+                        )
+                        ui.button(
+                            icon="delete",
+                            color=None,
+                            on_click=lambda _e, selected=project: ui.timer(
+                                0, lambda: delete_project(selected), once=True
+                            ),
+                        ).props("flat dense round").classes("icon-tool project-delete-button")
 
     def open_workspace(slug: str) -> None:
         state.selected_slug = slug
         current_screen["name"] = "workspace"
         render_page()
+
+    def _project_cell(text: str, classes: str, slug: str) -> None:
+        ui.label(text).classes(classes).on("click", lambda _e, selected_slug=slug: open_workspace(selected_slug))
 
     def back_to_index() -> None:
         current_screen["name"] = "index"
@@ -670,6 +680,42 @@ def build_page(state: ManagerState) -> None:
         trace_event("ui.toolbar.check_updates.clicked")
         await run_update_check(state.settings, log_message)
 
+    async def delete_project(project: ProjectStatus) -> None:
+        trace_event("ui.project.delete.clicked", project=project.project_path, slug=project.metadata.slug)
+        if runner.is_running:
+            log_message("Delete project is unavailable while a command is running.")
+            ui.notify("Stop the running command before deleting a project from the Manager.", type="warning")
+            return
+        ok = await confirm_dialog(
+            title="Delete project from Manager",
+            message=(
+                f"Remove this project from the Manager project list?\n\n"
+                f"{project.metadata.project_title}\n"
+                f"slug: {project.metadata.slug}\n"
+                f"path: {project.project_path}\n\n"
+                "This only deletes the project from the Manager GUI data. It does not delete the folder, "
+                "git repository, PHPP workbook, report files, or published site."
+            ),
+            confirm_label="Delete from Manager",
+            danger=True,
+        )
+        if not ok:
+            trace_event("ui.project.delete.cancelled", project=project.project_path)
+            log_message("Delete project canceled.")
+            return
+
+        hidden_paths = _hidden_project_paths_with(state.settings.hidden_project_paths, project.project_path)
+        state.settings = replace(state.settings, hidden_project_paths=hidden_paths)
+        save_settings(state.settings)
+        state.owned_lock_paths.discard(project.project_path)
+        current = state.selected_project()
+        if current is not None and current.project_path == project.project_path:
+            state.selected_slug = None
+            current_screen["name"] = "index"
+        trace_event("ui.project.delete.saved", project=project.project_path, hidden_paths=hidden_paths)
+        log_message(f"Deleted {project.metadata.slug} from Manager project list.")
+        await refresh_projects()
+
     # ---- Lock refresh + shutdown -----------------------------------------
     async def refresh_owned_locks() -> None:
         refreshed_any = False
@@ -725,3 +771,11 @@ def _register_shutdown_for(state: ManagerState, runner: ProcessRunner) -> None:
                 state.owned_lock_paths.discard(project_path)
 
     app.on_shutdown(_shutdown)
+
+
+def _hidden_project_paths_with(existing: tuple[Path, ...], project_path: Path) -> tuple[Path, ...]:
+    resolved_project_path = project_path.expanduser().resolve()
+    resolved_existing = {path.expanduser().resolve() for path in existing}
+    if resolved_project_path in resolved_existing:
+        return existing
+    return (*existing, resolved_project_path)

@@ -29,6 +29,7 @@ from bt_web_report_manager.new_project import (
     repo_name_from_slug,
     sanitize_slug,
 )
+from bt_web_report_manager.settings import save_settings, unhide_project_path
 from bt_web_report_manager.trace import trace_event, trace_exception, trace_log_path
 from bt_web_report_manager.ui.dialogs import confirm_dialog
 from bt_web_report_manager.ui.runner import ProcessRunner
@@ -473,6 +474,16 @@ async def open_new_project_wizard(
                             trace_event("ui.new_project.run_bootstrap.done", name=_name, code=code, canceled=canceled)
                             if canceled:
                                 log.push("[stopped]")
+                            elif code == 0:
+                                log.push("[exit 0]")
+                                state.settings = unhide_project_path(state.settings, plan.target_web_path)
+                                save_settings(state.settings)
+                                trace_event(
+                                    "ui.new_project.run_bootstrap.unhidden",
+                                    project_path=plan.target_web_path,
+                                    hidden_project_paths=state.settings.hidden_project_paths,
+                                )
+                                log.push(f"[manager] project is visible to discovery: {plan.target_web_path}")
                             else:
                                 log.push(f"[exit {code}]")
                             finished.set()

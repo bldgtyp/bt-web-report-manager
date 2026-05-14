@@ -51,10 +51,43 @@ def save_settings(settings: ManagerSettings, path: Path | None = None) -> Path:
     return target
 
 
+def unhide_project_path(settings: ManagerSettings, project_path: Path) -> ManagerSettings:
+    """Return settings with ``project_path`` removed from hidden-project filters."""
+    target = _resolved_path(project_path)
+    visible_paths = tuple(path for path in settings.hidden_project_paths if _resolved_path(path) != target)
+    if visible_paths == settings.hidden_project_paths:
+        trace_event("settings.unhide_project_path.noop", project_path=project_path, target=target)
+        return settings
+    updated = ManagerSettings(
+        projects_root=settings.projects_root,
+        extra_project_paths=settings.extra_project_paths,
+        hidden_project_paths=visible_paths,
+        btwr_executable=settings.btwr_executable,
+        pnpm_executable=settings.pnpm_executable,
+        renderer_source=settings.renderer_source,
+        git_executable=settings.git_executable,
+        gh_executable=settings.gh_executable,
+        editor_command=settings.editor_command,
+        github_owner=settings.github_owner,
+        github_repo=settings.github_repo,
+        project_github_owner=settings.project_github_owner,
+        lock_ttl_hours=settings.lock_ttl_hours,
+    )
+    trace_event(
+        "settings.unhide_project_path.removed",
+        project_path=project_path,
+        target=target,
+        hidden_before=settings.hidden_project_paths,
+        hidden_after=visible_paths,
+    )
+    return updated
+
+
 def _settings_from_mapping(raw: dict[str, Any]) -> ManagerSettings:
     return ManagerSettings(
         projects_root=Path(raw.get("projects_root", ManagerSettings.projects_root)).expanduser(),
         extra_project_paths=tuple(Path(item).expanduser() for item in raw.get("extra_project_paths", [])),
+        hidden_project_paths=tuple(Path(item).expanduser() for item in raw.get("hidden_project_paths", [])),
         btwr_executable=str(raw.get("btwr_executable") or _default_btwr_executable()),
         pnpm_executable=str(raw.get("pnpm_executable", "pnpm")),
         renderer_source=_optional_path(raw.get("renderer_source")),
@@ -72,6 +105,7 @@ def _settings_to_mapping(settings: ManagerSettings) -> dict[str, Any]:
     return {
         "projects_root": str(settings.projects_root),
         "extra_project_paths": [str(path) for path in settings.extra_project_paths],
+        "hidden_project_paths": [str(path) for path in settings.hidden_project_paths],
         "btwr_executable": settings.btwr_executable,
         "pnpm_executable": settings.pnpm_executable,
         "renderer_source": str(settings.renderer_source) if settings.renderer_source is not None else None,
@@ -104,6 +138,10 @@ def _optional_path(value: Any) -> Path | None:
     if value in (None, ""):
         return None
     return Path(value).expanduser()
+
+
+def _resolved_path(path: Path) -> Path:
+    return path.expanduser().resolve()
 
 
 def _default_btwr_executable() -> str:

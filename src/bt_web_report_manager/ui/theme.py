@@ -362,8 +362,8 @@ html, body, .q-page, .nicegui-content {
 .project-list-header,
 .project-list-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1.5fr) minmax(110px, 0.7fr) minmax(220px, 1.4fr) minmax(170px, 1fr) minmax(135px, 0.8fr) minmax(135px, 0.8fr) minmax(110px, 0.7fr) minmax(190px, 1fr);
-  min-width: 1280px;
+  grid-template-columns: minmax(220px, 1.5fr) minmax(110px, 0.7fr) minmax(220px, 1.4fr) minmax(170px, 1fr) minmax(135px, 0.8fr) minmax(135px, 0.8fr) minmax(110px, 0.7fr) minmax(190px, 1fr) 54px;
+  min-width: 1340px;
   gap: 0;
   align-items: center;
 }
@@ -388,7 +388,6 @@ html, body, .q-page, .nicegui-content {
   border-bottom: 1px solid var(--border);
   color: var(--text);
   text-align: left;
-  cursor: pointer;
   font-family: var(--font-sans);
 }
 .project-list-row:last-child {
@@ -406,6 +405,7 @@ html, body, .q-page, .nicegui-content {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12.5px;
+  cursor: pointer;
 }
 .project-name {
   font-weight: 700;
@@ -415,6 +415,11 @@ html, body, .q-page, .nicegui-content {
   flex-wrap: wrap;
   gap: 4px;
   white-space: normal;
+  cursor: pointer;
+}
+.project-delete-button {
+  justify-self: center;
+  color: var(--danger) !important;
 }
 .breadcrumb-strip {
   display: flex;

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import getpass
+import json
 import socket
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,9 +26,13 @@ def discover_projects(settings: ManagerSettings) -> list[ProjectStatus]:
         paths.extend(_candidate_paths(extra))
 
     seen: set[Path] = set()
+    hidden_paths = _resolved_hidden_paths(settings.hidden_project_paths)
     statuses: list[ProjectStatus] = []
     for path in paths:
         resolved = path.resolve()
+        if resolved in hidden_paths:
+            trace_event("projects.discover.skip_hidden", path=path, resolved=resolved)
+            continue
         if resolved in seen:
             trace_event("projects.discover.skip_duplicate", path=path, resolved=resolved)
             continue
@@ -42,6 +46,13 @@ def discover_projects(settings: ManagerSettings) -> list[ProjectStatus]:
         projects=[{"slug": status.metadata.slug, "path": status.project_path} for status in sorted_statuses],
     )
     return sorted_statuses
+
+
+def _resolved_hidden_paths(paths: tuple[Path, ...]) -> set[Path]:
+    resolved: set[Path] = set()
+    for path in paths:
+        resolved.add(path.expanduser().resolve())
+    return resolved
 
 
 def read_project_status(project_path: Path, settings: ManagerSettings) -> ProjectStatus:

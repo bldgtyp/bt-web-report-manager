@@ -21,6 +21,7 @@ class ToolStatus:
 class ManagerSettings:
     projects_root: Path = Path("~/Dropbox/bldgtyp").expanduser()
     extra_project_paths: tuple[Path, ...] = ()
+    hidden_project_paths: tuple[Path, ...] = ()
     btwr_executable: str = "btwr"
     pnpm_executable: str = "pnpm"
     renderer_source: Path | None = None
