@@ -11,7 +11,7 @@ import multiprocessing
 import os
 import socket
 
-from nicegui import app, ui
+from nicegui import ui
 
 from bt_web_report_manager.settings import load_settings
 from bt_web_report_manager.ui.main import build_page

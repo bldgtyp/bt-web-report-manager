@@ -34,7 +34,10 @@ class ProcessRunner:
 
     @property
     def is_running(self) -> bool:
-        return self._process is not None and self._process.returncode is None
+        # Treat the runner as busy until _wait_for_exit has cleared _process in
+        # its finally block — otherwise a start() racing with cleanup orphans the
+        # in-flight wait/reader tasks.
+        return self._process is not None
 
     @property
     def current_spec(self) -> CommandSpec | None:
@@ -89,13 +92,14 @@ class ProcessRunner:
         try:
             self._process.terminate()
         except ProcessLookupError:
-            return
-        try:
-            await asyncio.wait_for(self._process.wait(), timeout=STOP_GRACE_SECONDS)
-        except asyncio.TimeoutError:
-            if self._process.returncode is None:
-                self._process.kill()
-                await self._process.wait()
+            pass
+        else:
+            try:
+                await asyncio.wait_for(self._process.wait(), timeout=STOP_GRACE_SECONDS)
+            except asyncio.TimeoutError:
+                if self._process.returncode is None:
+                    self._process.kill()
+                    await self._process.wait()
         if self._wait_task is not None:
             try:
                 await self._wait_task

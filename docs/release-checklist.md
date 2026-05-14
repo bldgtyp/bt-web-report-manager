@@ -3,7 +3,7 @@
 Manual release path for the macOS bundle. Stays manual until release
 ownership is moved into CI. A local Developer ID Application identity and
 notarization keychain profile are available:
-`Developer ID Application: Edwin May (JPJ3AJ5U8A)` and
+`2D9B3302F8D8203D837B071A3CFAF5CD9FEACF4E` and
 `bt-web-report-manager`.
 
 > **Note (2026-05-13)**: Packaging switched from Briefcase + DMG to
@@ -16,22 +16,20 @@ Run from `bt-web-report-manager/`:
 
 ```bash
 uv sync --extra dev --extra package
-uv run black --check src tests
-uv run mypy src tests
-uv run pytest
-./scripts/build-app.sh
+make test
+make build
 ```
 
-Set `CODESIGN_IDENTITY` before running the build script to sign with a
-real Developer ID (defaults to ad-hoc `-` for local testing so Gatekeeper
-will open the bundle on the build machine):
+For release builds, use the checked-in wrapper so the Developer ID,
+notarization profile, ZIP archive, and bundle version metadata are handled
+the same way each time:
 
 ```bash
-CODESIGN_IDENTITY="Developer ID Application: Edwin May (JPJ3AJ5U8A)" \
-  ./scripts/build-app.sh
+make release-build
 ```
 
-Expected artifact: `dist/bt-web-report Manager.app`.
+Expected artifacts: `dist/bt-web-report Manager.app` and
+`dist/bt-web-report-manager-<version>.zip`.
 
 ## Local smoke
 
@@ -46,7 +44,7 @@ Then exercise:
 
 1. App opens (browser tab or `BTWR_MANAGER_NATIVE=1` window) and projects
    list populates from Dropbox.
-2. Doctor reports settings-folder write access and all expected tool paths.
+2. System Check reports settings-folder write access and all expected tool paths.
 3. Settings round-trips: change `lock_ttl_hours`, save, reopen, value
    persists.
 4. Check updates logs a result against `bldgtyp/bt-web-report-manager`.
@@ -91,8 +89,19 @@ gh release create "v${VERSION}" \
   --notes-file release-notes.md
 ```
 
+Equivalent wrapper:
+
+```bash
+make publish-release
+```
+
+The wrapper uses `release-notes.md` when present and falls back to GitHub's
+generated notes when it is absent.
+
 The asset name pattern `bt-web-report-manager-<version>.zip` is what the
-in-app update dialog's "Download asset" button looks for.
+in-app update dialog's install path looks for. The app downloads the ZIP,
+extracts the `.app`, verifies code signing / Team ID / Gatekeeper acceptance,
+starts a detached helper, quits, swaps the app bundle, and relaunches.
 
 ## CI decision
 

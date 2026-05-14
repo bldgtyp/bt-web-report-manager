@@ -19,6 +19,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 APP_NAME="bt-web-report Manager"
+APP_BUNDLE_ID="com.bldgtyp.bt-web-report-manager"
 ICON="resources/icon.icns"
 ENTRY="src/bt_web_report_manager/__main__.py"
 DIST_DIR="dist"
@@ -28,6 +29,16 @@ NOTARIZE_PROFILE="${NOTARIZE_PROFILE:-}"
 
 VERSION=$(uv run python -c "from bt_web_report_manager import __version__; print(__version__)")
 ZIP_PATH="$DIST_DIR/bt-web-report-manager-${VERSION}.zip"
+
+set_plist_value() {
+  local key="$1"
+  local value="$2"
+  local plist="$3"
+  if /usr/libexec/PlistBuddy -c "Set :$key $value" "$plist" >/dev/null 2>&1; then
+    return
+  fi
+  /usr/libexec/PlistBuddy -c "Add :$key string $value" "$plist"
+}
 
 echo "[1/5] Syncing dependencies..."
 uv sync --extra dev --extra package
@@ -45,6 +56,11 @@ if [ ! -d "$APP_PATH" ]; then
   echo "ERROR: nicegui-pack did not produce $APP_PATH" >&2
   exit 1
 fi
+
+echo "[2b/5] Stamping bundle metadata..."
+set_plist_value "CFBundleIdentifier" "$APP_BUNDLE_ID" "$APP_PATH/Contents/Info.plist"
+set_plist_value "CFBundleShortVersionString" "$VERSION" "$APP_PATH/Contents/Info.plist"
+set_plist_value "CFBundleVersion" "$VERSION" "$APP_PATH/Contents/Info.plist"
 
 if [ "$CODESIGN_IDENTITY" = "-" ]; then
   echo "[3/5] Ad-hoc signing..."

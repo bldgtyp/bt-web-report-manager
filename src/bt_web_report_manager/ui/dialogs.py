@@ -1,4 +1,4 @@
-"""Settings / Doctor / confirm / prompt dialog helpers."""
+"""Settings / system-check / confirm / prompt dialog helpers."""
 
 from __future__ import annotations
 
@@ -24,7 +24,6 @@ async def confirm_dialog(
 ) -> bool:
     """Modal confirm. Returns True iff the user clicked confirm."""
     dialog = ui.dialog().props("persistent")
-    result: dict[str, bool] = {"value": False}
 
     with dialog, ui.card().classes("min-w-[420px] max-w-[560px]"):
         ui.label(title).classes("dialog-title")
@@ -34,11 +33,9 @@ async def confirm_dialog(
         with ui.row().classes("w-full justify-end items-center gap-2 mt-2"):
 
             def _cancel() -> None:
-                result["value"] = False
                 dialog.submit(False)
 
             def _ok() -> None:
-                result["value"] = True
                 dialog.submit(True)
 
             ui.button(cancel_label, on_click=_cancel, color=None).props("flat unelevated no-caps").classes("action-btn")
@@ -234,7 +231,7 @@ async def open_doctor_dialog(state: ManagerState) -> None:
     statuses: list[ToolStatus] = await asyncio.to_thread(doctor, state.settings)
 
     with dialog, ui.card().classes("min-w-[760px] max-w-[920px]"):
-        ui.label("Doctor").classes("dialog-title")
+        ui.label("System Check").classes("dialog-title")
         ui.label("Read-only setup checks. Run this after editing Settings to confirm everything resolves.").classes(
             "dialog-subtitle"
         )

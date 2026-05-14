@@ -40,3 +40,18 @@ def test_build_script_exists() -> None:
     script = ROOT / "scripts" / "build-app.sh"
     assert script.is_file()
     assert script.stat().st_mode & 0o111, "build-app.sh must be executable"
+
+
+def test_build_script_stamps_bundle_version_metadata() -> None:
+    script = (ROOT / "scripts" / "build-app.sh").read_text()
+    assert "CFBundleIdentifier" in script
+    assert 'set_plist_value "CFBundleShortVersionString" "$VERSION"' in script
+    assert 'set_plist_value "CFBundleVersion" "$VERSION"' in script
+
+
+def test_makefile_has_release_targets() -> None:
+    makefile = (ROOT / "Makefile").read_text()
+    assert "release-build:" in makefile
+    assert "publish-release:" in makefile
+    assert "NOTARIZE_PROFILE" in makefile
+    assert "CODESIGN_IDENTITY" in makefile
