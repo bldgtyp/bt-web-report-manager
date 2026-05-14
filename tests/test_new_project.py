@@ -33,6 +33,8 @@ def test_build_new_project_plan_accepts_valid_inputs(tmp_path: Path) -> None:
     checklist = "\n".join(plan.manual_checklist())
     assert "Phase 7 dependency" in checklist
     assert "bldgtyp-projects/bt-proj-2606-vandam" in checklist
+    assert "content-only 04_Web" in checklist
+    assert "Do not install Node dependencies" in checklist
 
 
 def test_build_new_project_plan_rejects_invalid_contract(tmp_path: Path) -> None:
@@ -72,10 +74,12 @@ def test_bootstrap_command_matches_planned_btwr_new_arguments(tmp_path: Path) ->
         production_url="https://project.bldgtyp.com",
     )
 
-    spec = bootstrap_command(plan, ManagerSettings(btwr_executable="btwr-local"))
+    renderer = tmp_path / "renderer"
+    spec = bootstrap_command(plan, ManagerSettings(btwr_executable="btwr-local", renderer_source=renderer))
 
     assert spec.name == "New project"
     assert spec.cwd == local_folder
     assert spec.refresh_on_success
     assert spec.args[:4] == ("btwr-local", "new", str(local_folder / "04_Web"), "--slug")
     assert "--production-url" in spec.args
+    assert ("--renderer-source", str(renderer)) == spec.args[-2:]

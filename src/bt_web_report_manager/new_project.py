@@ -64,11 +64,11 @@ class NewProjectPlan:
             f"1. Create or verify project folder: {self.local_folder}",
             f"2. Create target web folder: {self.target_web_path}",
             f"3. Create private GitHub repo: {self.repo_owner}/{self.repo_name}",
-            "4. Clone bt-web-report-template into the target web folder.",
-            "5. Write project.yaml with the metadata shown above.",
+            "4. Run btwr new to create a content-only 04_Web payload.",
+            "5. Write or confirm project.yaml with the metadata shown above.",
             f"6. {phpp_line}",
             f"7. Set publishing.production_url to {self.production_url}",
-            "8. Run pnpm install, git init, first commit, and push main.",
+            "8. Git init, first commit, and push main. Do not install Node dependencies in 04_Web.",
             "9. Configure Cloudflare Pages and reserve the production subdomain.",
         ]
 
@@ -180,6 +180,8 @@ def bootstrap_command(plan: NewProjectPlan, settings: ManagerSettings) -> Comman
         args.extend(["--phase", plan.phase])
     if plan.phpp_path:
         args.extend(["--phpp", str(plan.phpp_path)])
+    if settings.renderer_source is not None:
+        args.extend(["--renderer-source", str(settings.renderer_source)])
     return CommandSpec(
         name="New project",
         args=tuple(args),

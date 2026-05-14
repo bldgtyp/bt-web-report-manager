@@ -23,6 +23,7 @@ class ManagerSettings:
     extra_project_paths: tuple[Path, ...] = ()
     btwr_executable: str = "btwr"
     pnpm_executable: str = "pnpm"
+    renderer_source: Path | None = None
     git_executable: str = "git"
     gh_executable: str = "gh"
     editor_command: str = "code"

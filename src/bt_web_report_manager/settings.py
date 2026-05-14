@@ -45,6 +45,7 @@ def _settings_from_mapping(raw: dict[str, Any]) -> ManagerSettings:
         extra_project_paths=tuple(Path(item).expanduser() for item in raw.get("extra_project_paths", [])),
         btwr_executable=str(raw.get("btwr_executable", "btwr")),
         pnpm_executable=str(raw.get("pnpm_executable", "pnpm")),
+        renderer_source=_optional_path(raw.get("renderer_source")),
         git_executable=str(raw.get("git_executable", "git")),
         gh_executable=str(raw.get("gh_executable", "gh")),
         editor_command=str(raw.get("editor_command", "code")),
@@ -61,6 +62,7 @@ def _settings_to_mapping(settings: ManagerSettings) -> dict[str, Any]:
         "extra_project_paths": [str(path) for path in settings.extra_project_paths],
         "btwr_executable": settings.btwr_executable,
         "pnpm_executable": settings.pnpm_executable,
+        "renderer_source": str(settings.renderer_source) if settings.renderer_source is not None else None,
         "git_executable": settings.git_executable,
         "gh_executable": settings.gh_executable,
         "editor_command": settings.editor_command,
@@ -81,3 +83,9 @@ def settings_write_status(base_dir: Path | None = None) -> ToolStatus:
     except OSError as exc:
         return ToolStatus("settings", str(target_dir), None, None, False, str(exc))
     return ToolStatus("settings", str(target_dir), str(target_dir), None, True, "settings folder writable")
+
+
+def _optional_path(value: Any) -> Path | None:
+    if value in (None, ""):
+        return None
+    return Path(value).expanduser()

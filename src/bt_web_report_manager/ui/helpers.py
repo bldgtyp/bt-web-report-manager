@@ -1,13 +1,11 @@
 """Pure formatting + disabled-reason helpers shared by the UI layer.
 
 Extracted from the old ``main_window.py`` unchanged so they can be tested
-without spinning up NiceGUI. Every function here is pure (no I/O except a
-single ``package.json`` read in ``open_editor_disabled_reason``).
+without spinning up NiceGUI. Every function here is pure.
 """
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -248,16 +246,6 @@ def open_editor_disabled_reason(project: ProjectStatus | None, running: bool, en
     reason = selected_disabled_reason(project, running, enabled)
     if reason is not None:
         return reason
-    assert project is not None
-    package_path = project.project_path / "package.json"
-    if not package_path.exists():
-        return "Disabled: package.json is missing."
-    try:
-        package_json = json.loads(package_path.read_text())
-    except (OSError, json.JSONDecodeError) as exc:
-        return f"Disabled: package.json is unreadable ({exc})."
-    if not isinstance(package_json.get("scripts"), dict) or "dev:editor" not in package_json["scripts"]:
-        return "Disabled: package.json does not define dev:editor."
     return None
 
 

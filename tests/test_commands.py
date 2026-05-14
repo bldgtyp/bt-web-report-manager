@@ -26,13 +26,35 @@ def test_action_command_specs(tmp_path: Path) -> None:
         metadata=ProjectMetadata("slug", "Project", None, None, None, None, tmp_path / "data", None),
         git=GitStatus(False),
     )
-    settings = ManagerSettings(btwr_executable="btwr-dev", pnpm_executable="pnpm-dev", editor_command="code-dev")
+    renderer = tmp_path / "renderer"
+    settings = ManagerSettings(
+        btwr_executable="btwr-dev",
+        pnpm_executable="pnpm-dev",
+        renderer_source=renderer,
+        editor_command="code-dev",
+    )
 
     assert scrape_command(project, settings).args == ("btwr-dev", "scrape", str(tmp_path))
     assert scrape_command(project, settings).refresh_on_success
-    assert dev_preview_command(project, settings).args == ("pnpm-dev", "dev")
+    assert dev_preview_command(project, settings).args == (
+        "btwr-dev",
+        "preview",
+        str(tmp_path),
+        "--pnpm",
+        "pnpm-dev",
+        "--renderer-source",
+        str(renderer),
+    )
     assert dev_preview_command(project, settings).long_running
-    assert open_editor_command(project, settings).args == ("pnpm-dev", "dev:editor")
+    assert open_editor_command(project, settings).args == (
+        "btwr-dev",
+        "editor",
+        str(tmp_path),
+        "--pnpm",
+        "pnpm-dev",
+        "--renderer-source",
+        str(renderer),
+    )
     assert open_editor_command(project, settings).cwd == tmp_path
     assert open_editor_command(project, settings).long_running
     assert open_code_editor_command(project, settings).args == ("code-dev", str(tmp_path))

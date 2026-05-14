@@ -72,9 +72,12 @@ def scrape_command(project: ProjectStatus, settings: ManagerSettings) -> Command
 
 
 def dev_preview_command(project: ProjectStatus, settings: ManagerSettings) -> CommandSpec:
+    args = [settings.btwr_executable, "preview", str(project.project_path), "--pnpm", settings.pnpm_executable]
+    if settings.renderer_source is not None:
+        args.extend(["--renderer-source", str(settings.renderer_source)])
     return CommandSpec(
         name="Dev preview",
-        args=(settings.pnpm_executable, "dev"),
+        args=tuple(args),
         cwd=project.project_path,
         long_running=True,
     )
@@ -89,9 +92,12 @@ def reveal_command(project: ProjectStatus) -> CommandSpec:
 
 
 def open_editor_command(project: ProjectStatus, settings: ManagerSettings) -> CommandSpec:
+    args = [settings.btwr_executable, "editor", str(project.project_path), "--pnpm", settings.pnpm_executable]
+    if settings.renderer_source is not None:
+        args.extend(["--renderer-source", str(settings.renderer_source)])
     return CommandSpec(
         name="Open editor",
-        args=(settings.pnpm_executable, "dev:editor"),
+        args=tuple(args),
         cwd=project.project_path,
         long_running=True,
         refresh_on_success=False,

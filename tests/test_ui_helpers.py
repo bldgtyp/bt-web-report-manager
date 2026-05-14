@@ -57,20 +57,8 @@ def test_commit_disabled_for_clean_repo(tmp_path: Path) -> None:
     assert "clean" in reason
 
 
-def test_open_editor_disabled_without_dev_editor_script(tmp_path: Path) -> None:
+def test_open_editor_enabled_for_content_only_project(tmp_path: Path) -> None:
     project = _make_project(tmp_path, with_phpp=True)
-    (project / "package.json").write_text('{"name": "x", "scripts": {"dev": "echo"}}')
-    settings = ManagerSettings(projects_root=tmp_path)
-    status = read_project_status(project, settings)
-
-    reason = open_editor_disabled_reason(status, running=False, enabled=True)
-    assert reason is not None
-    assert "dev:editor" in reason
-
-
-def test_open_editor_enabled_with_dev_editor_script(tmp_path: Path) -> None:
-    project = _make_project(tmp_path, with_phpp=True)
-    (project / "package.json").write_text('{"name": "x", "scripts": {"dev": "echo", "dev:editor": "echo"}}')
     settings = ManagerSettings(projects_root=tmp_path)
     status = read_project_status(project, settings)
 

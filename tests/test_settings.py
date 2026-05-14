@@ -10,6 +10,7 @@ def test_settings_round_trip(tmp_path: Path) -> None:
         projects_root=tmp_path / "projects",
         extra_project_paths=(tmp_path / "extra",),
         btwr_executable="/tmp/btwr",
+        renderer_source=tmp_path / "renderer",
         project_github_owner="bldgtyp-projects",
         lock_ttl_hours=2,
     )
@@ -20,6 +21,7 @@ def test_settings_round_trip(tmp_path: Path) -> None:
     assert loaded.projects_root == tmp_path / "projects"
     assert loaded.extra_project_paths == (tmp_path / "extra",)
     assert loaded.btwr_executable == "/tmp/btwr"
+    assert loaded.renderer_source == tmp_path / "renderer"
     assert loaded.project_github_owner == "bldgtyp-projects"
     assert loaded.lock_ttl_hours == 2
 
