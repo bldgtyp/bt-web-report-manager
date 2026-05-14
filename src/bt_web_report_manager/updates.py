@@ -103,6 +103,10 @@ def _preferred_asset(value: Any) -> tuple[str | None, str | None]:
     if not assets:
         return (None, None)
     for name, download_url in assets:
-        if name.lower().endswith(".dmg"):
+        lower = name.lower()
+        if lower.startswith("bt-web-report-manager-") and lower.endswith(".zip"):
+            return (name, download_url)
+    for name, download_url in assets:
+        if name.lower().endswith(".zip"):
             return (name, download_url)
     return assets[0]
