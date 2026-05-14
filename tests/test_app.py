@@ -6,6 +6,7 @@ import pytest
 from nicegui import app as nicegui_app
 
 from bt_web_report_manager import app
+from bt_web_report_manager.ui.theme import CSS
 from bt_web_report_manager.ui.main import _hidden_project_paths_with
 
 
@@ -48,6 +49,13 @@ def test_browser_mode_does_not_touch_native_window_args() -> None:
     app._configure_native_window(native=False)
 
     assert "text_select" not in nicegui_app.native.window_args
+
+
+def test_global_css_keeps_visible_text_selectable() -> None:
+    assert "-webkit-user-select: text !important;" in CSS
+    assert "user-select: text !important;" in CSS
+    assert ".screen-root.is-frozen" in CSS
+    assert ".screen-root.is-frozen" in CSS[CSS.index("user-select: text !important;") :]
 
 
 def test_hidden_project_paths_with_appends_resolved_path_once(tmp_path: Path) -> None:

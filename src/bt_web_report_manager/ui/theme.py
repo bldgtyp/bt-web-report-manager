@@ -56,6 +56,15 @@ html, body, .q-page, .nicegui-content {
   font-feature-settings: 'cv11', 'ss01', 'ss03';
 }
 
+html, body, .q-page, .nicegui-content,
+.q-card, .q-table, .q-table th, .q-table td,
+.q-item, .q-field, .q-field__native, .q-field__input,
+.q-btn, .q-badge, .log-body, .nicegui-log,
+p, span, div, label, code, pre {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+}
+
 .q-page-container {
   padding-top: 0 !important;
 }
