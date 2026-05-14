@@ -47,6 +47,31 @@ def test_project_status_uses_manifest_generated_at(tmp_path: Path) -> None:
     assert "Data current" in status.badges
 
 
+def test_pending_starter_manifest_requires_scrape_without_warning(tmp_path: Path) -> None:
+    project = _make_project(tmp_path / "Project" / "04_Web", "project")
+    data = project / "data"
+    data.mkdir()
+    (data / "manifest.json").write_text(json.dumps({"status": "pending", "variants": []}))
+
+    status = read_project_status(project, ManagerSettings(projects_root=tmp_path))
+
+    assert status.manifest_generated_at is None
+    assert status.needs_scrape
+    assert "Needs scrape" in status.badges
+    assert status.warnings == ()
+
+
+def test_manifest_without_generated_at_warns_when_not_pending(tmp_path: Path) -> None:
+    project = _make_project(tmp_path / "Project" / "04_Web", "project")
+    data = project / "data"
+    data.mkdir()
+    (data / "manifest.json").write_text(json.dumps({"variants": []}))
+
+    status = read_project_status(project, ManagerSettings(projects_root=tmp_path))
+
+    assert "manifest.json has no generated_at timestamp" in status.warnings
+
+
 def test_lock_badge_reports_stale_lock(tmp_path: Path) -> None:
     now = datetime(2026, 5, 13, 12, 0, tzinfo=timezone.utc)
     status = ProjectStatus(

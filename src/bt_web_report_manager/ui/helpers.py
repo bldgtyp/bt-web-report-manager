@@ -196,6 +196,8 @@ def status_explanations(project: ProjectStatus) -> list[str]:
     lines: list[str] = []
     if project.manifest_path is None:
         lines.append("- No data manifest exists yet; run Scrape after the PHPP path is configured.")
+    elif project.manifest_generated_at is None:
+        lines.append("- Starter data manifest has not been scraped from PHPP yet; run Scrape PHPP.")
     elif project.needs_scrape:
         lines.append("- PHPP is newer than the data manifest; run Scrape before previewing or publishing.")
     else:

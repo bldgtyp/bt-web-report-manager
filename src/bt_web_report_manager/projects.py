@@ -156,6 +156,9 @@ def _read_manifest_generated_at(path: Path, warnings: list[str]) -> datetime | N
         raw: dict[str, Any] = json.loads(path.read_text())
         value = raw.get("generated_at")
         if not isinstance(value, str):
+            if raw.get("status") == "pending":
+                trace_event("projects.manifest.pending_without_generated_at", path=path)
+                return None
             warnings.append("manifest.json has no generated_at timestamp")
             trace_event("projects.manifest.missing_generated_at", path=path)
             return _mtime(path)

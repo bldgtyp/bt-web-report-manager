@@ -87,6 +87,8 @@ class ProjectStatus:
     def needs_scrape(self) -> bool:
         if self.manifest_path is None:
             return True
-        if self.phpp_modified_at is None or self.manifest_generated_at is None:
+        if self.manifest_generated_at is None:
+            return self.phpp_modified_at is not None
+        if self.phpp_modified_at is None:
             return False
         return self.phpp_modified_at > self.manifest_generated_at
