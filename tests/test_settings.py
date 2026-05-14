@@ -3,7 +3,9 @@ from pathlib import Path
 from bt_web_report_manager.models import ManagerSettings
 from bt_web_report_manager.settings import (
     _default_btwr_executable,
+    cleanup_project_runtime,
     load_settings,
+    project_runtime_dirs,
     save_settings,
     settings_write_status,
     unhide_project_path,
@@ -38,6 +40,32 @@ def test_settings_round_trip(tmp_path: Path) -> None:
 def test_settings_write_status(tmp_path: Path) -> None:
     status = settings_write_status(tmp_path / "support")
     assert status.ok
+
+
+def test_project_runtime_dirs_match_cli_workspace_buckets(tmp_path: Path) -> None:
+    assert project_runtime_dirs("project-2606", tmp_path / "support") == (
+        tmp_path / "support" / "builds" / "project-2606",
+        tmp_path / "support" / "previews" / "project-2606",
+    )
+
+
+def test_cleanup_project_runtime_removes_only_project_build_and_preview(tmp_path: Path) -> None:
+    support = tmp_path / "support"
+    build = support / "builds" / "project-2606"
+    preview = support / "previews" / "project-2606"
+    other_build = support / "builds" / "other"
+    renderer = support / "renderer" / "current"
+    for path in (build, preview, other_build, renderer):
+        path.mkdir(parents=True)
+        (path / "marker.txt").write_text("keep")
+
+    removed = cleanup_project_runtime("project-2606", support)
+
+    assert removed == (build, preview)
+    assert not build.exists()
+    assert not preview.exists()
+    assert other_build.exists()
+    assert renderer.exists()
 
 
 def test_unhide_project_path_removes_matching_resolved_path(tmp_path: Path) -> None:

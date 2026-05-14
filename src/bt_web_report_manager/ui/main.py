@@ -39,7 +39,7 @@ from bt_web_report_manager.locks import (
 )
 from bt_web_report_manager.models import ProjectStatus
 from bt_web_report_manager.projects import discover_projects
-from bt_web_report_manager.settings import save_settings
+from bt_web_report_manager.settings import cleanup_project_runtime, save_settings
 from bt_web_report_manager.ui.command_feedback import (
     ScrapeRunFeedback,
     scrape_error_summary,
@@ -865,8 +865,9 @@ def build_page(state: ManagerState) -> None:
                 f"{project.metadata.project_title}\n"
                 f"slug: {project.metadata.slug}\n"
                 f"path: {project.project_path}\n\n"
-                "This only deletes the project from the Manager GUI data. It does not delete the folder, "
-                "git repository, PHPP workbook, report files, or published site."
+                "This deletes the project from the Manager GUI data and removes Manager-owned build/preview "
+                "workspaces for this slug. It does not delete the project folder, git repository, PHPP workbook, "
+                "report source files, or published site."
             ),
             confirm_label="Delete from Manager",
             danger=True,
@@ -879,13 +880,23 @@ def build_page(state: ManagerState) -> None:
         hidden_paths = _hidden_project_paths_with(state.settings.hidden_project_paths, project.project_path)
         state.settings = replace(state.settings, hidden_project_paths=hidden_paths)
         save_settings(state.settings)
+        removed_runtime_dirs = cleanup_project_runtime(project.metadata.slug)
         state.owned_lock_paths.discard(project.project_path)
         current = state.selected_project()
         if current is not None and current.project_path == project.project_path:
             state.selected_slug = None
             current_screen["name"] = "index"
-        trace_event("ui.project.delete.saved", project=project.project_path, hidden_paths=hidden_paths)
-        log_message(f"Deleted {project.metadata.slug} from Manager project list.")
+        trace_event(
+            "ui.project.delete.saved",
+            project=project.project_path,
+            hidden_paths=hidden_paths,
+            removed_runtime_dirs=removed_runtime_dirs,
+        )
+        if removed_runtime_dirs:
+            removed_names = ", ".join(str(path) for path in removed_runtime_dirs)
+            log_message(f"Deleted {project.metadata.slug} from Manager project list and removed {removed_names}.")
+        else:
+            log_message(f"Deleted {project.metadata.slug} from Manager project list.")
         await refresh_projects()
 
     # ---- Lock refresh + shutdown -----------------------------------------

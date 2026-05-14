@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,29 @@ def app_support_dir() -> Path:
 
 def settings_path(base_dir: Path | None = None) -> Path:
     return (base_dir or app_support_dir()) / "settings.yaml"
+
+
+def project_runtime_dirs(slug: str, base_dir: Path | None = None) -> tuple[Path, ...]:
+    """Return manager-owned runtime folders that are disposable for one project."""
+    root = base_dir or app_support_dir()
+    return (root / "builds" / slug, root / "previews" / slug)
+
+
+def cleanup_project_runtime(slug: str, base_dir: Path | None = None) -> tuple[Path, ...]:
+    """Remove manager-owned build/preview workspaces for ``slug``."""
+    removed: list[Path] = []
+    for path in project_runtime_dirs(slug, base_dir):
+        if not path.exists() and not path.is_symlink():
+            trace_event("settings.cleanup_project_runtime.missing", slug=slug, path=path)
+            continue
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+        removed.append(path)
+        trace_event("settings.cleanup_project_runtime.removed", slug=slug, path=path)
+    trace_event("settings.cleanup_project_runtime.done", slug=slug, removed=removed)
+    return tuple(removed)
 
 
 def load_settings(path: Path | None = None) -> ManagerSettings:
