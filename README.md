@@ -54,15 +54,15 @@ packing, and ad-hoc codesigning so Gatekeeper lets the bundle open locally:
 
 ```bash
 uv sync --extra dev --extra package
-./scripts/build-app.sh
+make build
 ```
 
 This produces `dist/bt-web-report Manager.app`. Bundle size is ~110 MB
 (versus ~500 MB for the previous Qt + Briefcase build).
 
-For a signed release build, set `CODESIGN_IDENTITY` to your Developer ID
-identity (e.g. `"Developer ID Application: BLDGTYP, LLC (TEAMID)"`). See
-`docs/release-checklist.md` (TODO: refresh for nicegui-pack).
+For a signed/notarized release build, run `make release-build`. It wraps the
+Developer ID identity and notarytool profile used for this app. See
+`docs/release-checklist.md`.
 
 The app reads settings from
 `~/Library/Application Support/bt-web-report-manager/settings.yaml`. For
@@ -98,9 +98,9 @@ temporary folder.
   another user/host holds an active lock, the action prompts for
   confirmation before overwriting it.
 - **Update check**: polls `bldgtyp/bt-web-report-manager` GitHub releases
-  on startup (250 ms after page load) and via the toolbar; an
-  `Update available` dialog offers buttons to open the release page or
-  download the asset.
+  on startup (250 ms after page load) and via the toolbar. For ZIP releases,
+  the `Update available` dialog can download, verify, install, and relaunch
+  the packaged app; it also keeps manual release-page and asset buttons.
 
 ## Current command contract
 

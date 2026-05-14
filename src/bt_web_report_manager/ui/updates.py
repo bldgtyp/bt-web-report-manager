@@ -6,10 +6,18 @@ import asyncio
 import webbrowser
 from collections.abc import Callable
 
-from nicegui import ui
+from nicegui import app, ui
 
 from bt_web_report_manager import __version__
 from bt_web_report_manager.models import ManagerSettings
+from bt_web_report_manager.update_installer import (
+    UpdateInstallError,
+    current_app_bundle,
+    is_installable_asset,
+    launch_swap_helper,
+    prepare_update,
+    verify_update_app,
+)
 from bt_web_report_manager.updates import ReleaseInfo, UpdateCheckResult, check_for_updates
 
 
@@ -47,14 +55,17 @@ async def _show_update_dialog(release: ReleaseInfo, log: Callable[[str], None]) 
             ui.button("Later", on_click=dialog.close, color=None).props("flat unelevated no-caps").classes("action-btn")
             if release.asset_url:
 
-                def _download() -> None:
-                    webbrowser.open(release.asset_url or "")
-                    log(f"Opening release asset: {release.asset_url}")
+                async def _install() -> None:
                     dialog.close()
+                    await _download_and_install(release, log)
 
-                ui.button("Download asset", on_click=_download, color=None).props("flat unelevated no-caps").classes(
-                    "action-btn"
-                )
+                ui.button("Download asset", on_click=_open_asset(release, log), color=None).props(
+                    "flat unelevated no-caps"
+                ).classes("action-btn")
+                if is_installable_asset(release.asset_name):
+                    ui.button("Install and relaunch", on_click=_install, color=None).props(
+                        "flat unelevated no-caps"
+                    ).classes("action-btn is-primary")
 
             def _open_release() -> None:
                 webbrowser.open(release.url)
@@ -62,6 +73,51 @@ async def _show_update_dialog(release: ReleaseInfo, log: Callable[[str], None]) 
                 dialog.close()
 
             ui.button("Open release page", on_click=_open_release, color=None).props("flat unelevated no-caps").classes(
-                "action-btn is-primary"
+                "action-btn"
             )
     await dialog
+
+
+def _open_asset(release: ReleaseInfo, log: Callable[[str], None]) -> Callable[[], None]:
+    def _download() -> None:
+        webbrowser.open(release.asset_url or "")
+        log(f"Opening release asset: {release.asset_url}")
+
+    return _download
+
+
+async def _download_and_install(release: ReleaseInfo, log: Callable[[str], None]) -> None:
+    if not release.asset_url:
+        log("Update install failed: release has no downloadable asset.")
+        return
+
+    current_app = current_app_bundle()
+    if current_app is None:
+        log("Update install unavailable: this process is not running from a packaged .app.")
+        webbrowser.open(release.asset_url)
+        return
+
+    try:
+        log(f"Downloading update asset: {release.asset_url}")
+        prepared = await asyncio.to_thread(prepare_update, release.asset_url)
+        log(f"Verifying update app: {prepared.extracted_app}")
+        await asyncio.to_thread(verify_update_app, prepared.extracted_app)
+        helper_path = await asyncio.to_thread(
+            launch_swap_helper,
+            current_app,
+            prepared.extracted_app,
+            cleanup_dir=prepared.temp_dir,
+        )
+    except UpdateInstallError as exc:
+        log(f"Update install failed: {exc}")
+        ui.notify("Update install failed. Open the release page and install manually.", type="negative")
+        return
+    except Exception as exc:
+        log(f"Update install failed: {exc}")
+        ui.notify("Update install failed. Open the release page and install manually.", type="negative")
+        return
+
+    log(f"Update helper started: {helper_path}")
+    ui.notify("Manager will quit, install the update, and relaunch.", type="positive")
+    await asyncio.sleep(0.5)
+    app.shutdown()

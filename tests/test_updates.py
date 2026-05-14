@@ -50,7 +50,7 @@ def test_latest_release_reports_current_version(monkeypatch: pytest.MonkeyPatch)
     assert release.asset_url is None
 
 
-def test_latest_release_reports_update_and_prefers_dmg_asset(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_latest_release_reports_update_and_prefers_zip_asset(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "bt_web_report_manager.updates.requests.get",
         _get_response(
@@ -67,8 +67,8 @@ def test_latest_release_reports_update_and_prefers_dmg_asset(monkeypatch: pytest
                             "browser_download_url": "https://example.com/checksums.txt",
                         },
                         {
-                            "name": "bt-web-report-manager-0.2.0.dmg",
-                            "browser_download_url": "https://example.com/manager.dmg",
+                            "name": "bt-web-report-manager-0.2.0.zip",
+                            "browser_download_url": "https://example.com/manager.zip",
                         },
                     ],
                 }
@@ -81,8 +81,8 @@ def test_latest_release_reports_update_and_prefers_dmg_asset(monkeypatch: pytest
     assert release is not None
     assert release.is_update
     assert release.name == "Manager v0.2.0"
-    assert release.asset_name == "bt-web-report-manager-0.2.0.dmg"
-    assert release.asset_url == "https://example.com/manager.dmg"
+    assert release.asset_name == "bt-web-report-manager-0.2.0.zip"
+    assert release.asset_url == "https://example.com/manager.zip"
 
 
 def test_latest_release_skips_prereleases_and_malformed_releases(monkeypatch: pytest.MonkeyPatch) -> None:

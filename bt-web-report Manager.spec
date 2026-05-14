@@ -1,18 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-import importlib.util
-from pathlib import Path
-
-_nicegui_spec = importlib.util.find_spec("nicegui")
-if _nicegui_spec is None or _nicegui_spec.origin is None:
-    raise RuntimeError("nicegui must be importable in the build environment")
-_nicegui_dir = str(Path(_nicegui_spec.origin).parent)
 
 a = Analysis(
     ['src/bt_web_report_manager/__main__.py'],
     pathex=[],
     binaries=[],
-    datas=[(_nicegui_dir, 'nicegui')],
+    datas=[('/Users/em/Dropbox/bldgtyp-00/00_PH_Tools/bt-web-report/bt-web-report-manager/.venv/lib/python3.13/site-packages/nicegui', 'nicegui')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
