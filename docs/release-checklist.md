@@ -54,6 +54,55 @@ Then exercise:
 5. Vandam Dev preview starts and Stop kills the dev server cleanly.
 6. Commit & push only against a disposable repo or controlled branch.
 
+## Partner setup: John
+
+For the current internal build, the `.app` is the Manager UI only. It still
+wraps external command-line tools, so John's Mac needs the same local
+toolchain before project actions are safe.
+
+1. Install the Manager app:
+   - Download `bt-web-report-manager-<version>.zip` from the
+     `bldgtyp/bt-web-report-manager` GitHub Release.
+   - Unzip it and move `bt-web-report Manager.app` to `/Applications`.
+   - Open it once.
+2. Confirm Dropbox access:
+   - Dropbox must sync the shared BLDGTYP project root at
+     `~/Dropbox/bldgtyp`.
+   - Project folders should keep the standard numbered structure, with report
+     projects under `04_Web/`.
+3. Install local command-line tools:
+   - If `git` is missing, run `xcode-select --install`.
+   - Install Homebrew if needed.
+   - Run `brew install pnpm gh`.
+   - Install VS Code's `code` command from VS Code's Command Palette:
+     `Shell Command: Install 'code' command in PATH`.
+4. Authenticate GitHub:
+   - Run `gh auth login`.
+   - John needs access to `bldgtyp/bt-web-report-manager`, platform repos under
+     `bldgtyp`, and project repos under `bldgtyp-projects`.
+   - Verify with `gh auth status`.
+5. Provide the `btwr` CLI:
+   - Current internal builds do not bundle `btwr`.
+   - If John has the shared dev workspace, run `uv sync` at the
+     `bt-web-report/` workspace root, then set Manager Settings
+     `btwr executable` to that workspace's `.venv/bin/btwr`.
+   - If the workspace path differs from Ed's, John must use his own absolute
+     path. Do not copy Ed's `/Users/em/...` value.
+   - Future packaging should bundle `btwr` or install it as a managed
+     companion tool.
+6. Run Manager System Check:
+   - All rows should be green before project actions.
+   - If `btwr` is missing and the workspace CLI is detected, click
+     **Use workspace btwr**, then rerun System Check.
+7. Smoke-test with a known project:
+   - Click Refresh.
+   - Open a known project.
+   - Try Reveal in Finder, Dev preview, and Stop first.
+   - Only use Commit & push after confirming the repo and branch.
+
+The same steps are available in-app from **System Check -> Setup guide** so
+John does not need to find this release checklist during setup.
+
 ## Notarize
 
 ```bash

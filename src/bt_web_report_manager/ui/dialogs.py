@@ -300,7 +300,10 @@ async def open_doctor_dialog(state: ManagerState) -> None:
                                 "flat unelevated no-caps"
                             ).classes("action-btn is-warning").style("align-self: flex-start; margin-top: 4px;")
 
-        with ui.row().classes("w-full justify-end mt-3"):
+        with ui.row().classes("w-full justify-between mt-3"):
+            ui.button("Setup guide", on_click=lambda: open_partner_setup_dialog(state), color=None).props(
+                "flat unelevated no-caps"
+            ).classes("action-btn")
             ui.button("Close", on_click=dialog.close, color=None).props("flat unelevated no-caps").classes(
                 "action-btn is-primary"
             )
@@ -310,3 +313,72 @@ async def open_doctor_dialog(state: ManagerState) -> None:
 
 def _can_repair_btwr(status: ToolStatus, workspace_btwr: str | None) -> bool:
     return bool(status.name == "btwr" and not status.ok and workspace_btwr and status.executable != workspace_btwr)
+
+
+async def open_partner_setup_dialog(state: ManagerState) -> None:
+    dialog = ui.dialog()
+    with dialog, ui.card().classes("min-w-[760px] max-w-[920px]"):
+        ui.label("Partner setup guide").classes("dialog-title")
+        ui.label("Use this when installing bt-web-report Manager on another BLDGTYP Mac.").classes("dialog-subtitle")
+        ui.markdown(_partner_setup_markdown(state)).classes("w-full").style(
+            "font-size: 13px; line-height: 1.45; max-height: 560px; overflow: auto;"
+        )
+        with ui.row().classes("w-full justify-end mt-3"):
+            ui.button("Close", on_click=dialog.close, color=None).props("flat unelevated no-caps").classes(
+                "action-btn is-primary"
+            )
+    await dialog
+
+
+def _partner_setup_markdown(state: ManagerState) -> str:
+    settings = state.settings
+    workspace_btwr = workspace_btwr_executable()
+    suggested_btwr = workspace_btwr or settings.btwr_executable
+    return f"""
+### What John needs to do
+
+1. **Install the Manager app.**
+   - Download the latest `bt-web-report-manager-<version>.zip` from the `bldgtyp/bt-web-report-manager` GitHub Release.
+   - Unzip it, move `bt-web-report Manager.app` to `/Applications`, then open it once.
+
+2. **Confirm Dropbox project access.**
+   - Dropbox must sync the shared BLDGTYP project root at `~/Dropbox/bldgtyp`.
+   - The Manager scans this root for project folders containing `04_Web/project.yaml`.
+
+3. **Install the command-line tools the app wraps.**
+   - Install Apple Command Line Tools if `git` is missing: `xcode-select --install`.
+   - Install Homebrew if needed.
+   - Install runtime tools: `brew install pnpm gh`.
+   - Install VS Code's `code` command from VS Code: Command Palette -> `Shell Command: Install 'code' command in PATH`.
+
+4. **Authenticate GitHub.**
+   - Run `gh auth login`.
+   - John needs access to `bldgtyp/bt-web-report-manager`, platform repos under `bldgtyp`, and project repos under `bldgtyp-projects`.
+   - Verify with `gh auth status`.
+
+5. **Provide a `btwr` CLI executable.**
+   - Current internal builds shell out to `btwr`; the `.app` does not yet bundle the CLI.
+   - For the shared dev workspace, use: `{suggested_btwr}`.
+   - If John's workspace lives somewhere else, set **Settings -> btwr executable** to his local `.venv/bin/btwr`.
+   - Future packaging should either bundle `btwr` or install it as a managed companion tool.
+
+6. **Run System Check.**
+   - Open **System Check** in the Manager.
+   - All rows should be green before running project actions.
+   - If `btwr` is missing and the workspace CLI is detected, click **Use workspace btwr**, then rerun System Check.
+
+7. **Smoke-test one project.**
+   - Click **Refresh**.
+   - Open a known project.
+   - Use non-destructive actions first: Reveal in Finder, Dev preview, Stop.
+   - Only use Commit & push after confirming the correct repo and branch.
+
+### Current settings on this Mac
+
+- Projects root: `{settings.projects_root}`
+- btwr executable: `{settings.btwr_executable}`
+- pnpm executable: `{settings.pnpm_executable}`
+- git executable: `{settings.git_executable}`
+- gh executable: `{settings.gh_executable}`
+- code editor: `{settings.editor_command}`
+"""

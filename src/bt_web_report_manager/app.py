@@ -53,6 +53,13 @@ def _native_window_enabled() -> bool:
     return _running_from_app_bundle()
 
 
+def _show_browser_enabled() -> bool:
+    override = os.environ.get("BTWR_MANAGER_SHOW")
+    if override is not None:
+        return override not in {"0", "false", "False", "no", "No"}
+    return True
+
+
 def run() -> int:
     multiprocessing.freeze_support()
 
@@ -70,7 +77,7 @@ def run() -> int:
         favicon="🏠",
         port=port,
         reload=False,
-        show=True,
+        show=_show_browser_enabled(),
         native=native,
         window_size=(1280, 820) if native else None,
         dark=False,

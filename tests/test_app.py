@@ -24,3 +24,9 @@ def test_packaged_app_path_enables_native_by_default(monkeypatch: pytest.MonkeyP
     monkeypatch.delenv("BTWR_MANAGER_NATIVE", raising=False)
 
     assert app._running_from_app_bundle(executable)
+
+
+def test_show_browser_override_disables_auto_open(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BTWR_MANAGER_SHOW", "0")
+
+    assert not app._show_browser_enabled()

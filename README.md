@@ -124,3 +124,11 @@ testing locally.
 
 Missing tools surface as warnings in the action log and as System Check
 findings rather than crashing the GUI.
+
+## Partner setup
+
+For John or another BLDGTYP operator, use **System Check → Setup guide** in
+the app. It lists the required install steps: Dropbox project-root access,
+Homebrew tools (`pnpm`, `gh`), GitHub auth, VS Code's `code` command, and the
+current `btwr` CLI path requirement. The full release-owner checklist is in
+`docs/release-checklist.md`.
