@@ -95,7 +95,7 @@ class NewProjectPlan:
             "Manual checklist:",
             f"1. Create or verify project folder: {self.local_folder}",
             f"2. {'Replace contents of' if self.overwrite_existing else 'Create target web folder'}: {self.target_web_path}",
-            f"3. Create private GitHub repo: {self.repo_owner}/{self.repo_name}",
+            f"3. Create public GitHub repo: {self.repo_owner}/{self.repo_name}",
             "4. Run btwr new to create a content-only 04_Web payload.",
             "5. Write or confirm project.yaml with the metadata shown above.",
             f"6. {phpp_line}",

@@ -283,7 +283,7 @@ async def open_new_project_wizard(
                             .props("outlined dense")
                             .classes("flex-1")
                             .tooltip(
-                                "Lowercase project name for the internal repo. Default is parsed from the local folder."
+                                "Lowercase project name for the public repo. Default is parsed from the local folder."
                             )
                         )
                     with ui.row().classes("w-full gap-3"):
