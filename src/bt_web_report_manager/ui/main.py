@@ -28,6 +28,12 @@ from bt_web_report_manager.commands import (
     reveal_command,
     scrape_command,
 )
+from bt_web_report_manager.deletion import (
+    ProjectDeleteError,
+    build_project_delete_plan,
+    delete_project_artifacts,
+    format_project_delete_confirmation,
+)
 from bt_web_report_manager.locks import (
     is_current_user_lock,
     lock_requires_confirmation,
@@ -417,7 +423,11 @@ def build_page(state: ManagerState) -> None:
                             on_click=lambda _e, selected=project: ui.timer(
                                 0, lambda: delete_project(selected), once=True
                             ),
-                        ).props("flat dense round").classes("icon-tool project-delete-button")
+                        ).props('flat dense round aria-label="Full delete project"').classes(
+                            "icon-tool project-delete-button"
+                        ).tooltip(
+                            "Full delete project"
+                        )
 
     def open_workspace(slug: str) -> None:
         state.selected_slug = slug
@@ -950,18 +960,11 @@ def build_page(state: ManagerState) -> None:
             log_message("Delete project is unavailable while a command is running.")
             ui.notify("Stop the running command before deleting a project from the Manager.", type="warning")
             return
+        plan = build_project_delete_plan(project)
         ok = await confirm_dialog(
-            title="Delete project from Manager",
-            message=(
-                f"Remove this project from the Manager project list?\n\n"
-                f"{project.metadata.project_title}\n"
-                f"slug: {project.metadata.slug}\n"
-                f"path: {project.project_path}\n\n"
-                "This deletes the project from the Manager GUI data and removes Manager-owned build/preview "
-                "workspaces for this slug. It does not delete the project folder, git repository, PHPP workbook, "
-                "report source files, or published site."
-            ),
-            confirm_label="Delete from Manager",
+            title="Full delete project",
+            message=format_project_delete_confirmation(plan),
+            confirm_label="Delete everywhere",
             danger=True,
         )
         if not ok:
@@ -969,10 +972,34 @@ def build_page(state: ManagerState) -> None:
             log_message("Delete project canceled.")
             return
 
-        hidden_paths = _hidden_project_paths_with(state.settings.hidden_project_paths, project.project_path)
-        state.settings = replace(state.settings, hidden_project_paths=hidden_paths)
+        try:
+            result = await asyncio.to_thread(delete_project_artifacts, plan, state.settings)
+        except ProjectDeleteError as exc:
+            trace_exception("ui.project.delete.failed", exc, project=project.project_path, slug=project.metadata.slug)
+            log_message(f"Delete project failed before cleanup started: {exc}")
+            ui.notify(str(exc), type="negative", multi_line=True)
+            return
+        except Exception as exc:
+            trace_exception(
+                "ui.project.delete.exception", exc, project=project.project_path, slug=project.metadata.slug
+            )
+            log_message(f"Delete project failed: {exc}")
+            ui.notify(f"Delete project failed: {exc}", type="negative", multi_line=True)
+            return
+
+        for step in result.steps:
+            prefix = "OK" if step.ok else "FAILED"
+            log_message(f"{prefix}: {step.label}: {step.message}")
+        if not result.ok:
+            failed = next((step for step in result.steps if not step.ok), None)
+            message = failed.message if failed is not None else "Delete project failed."
+            ui.notify(message, type="negative", multi_line=True)
+            return
+
+        extra_paths = _project_paths_without(state.settings.extra_project_paths, project.project_path)
+        hidden_paths = _project_paths_without(state.settings.hidden_project_paths, project.project_path)
+        state.settings = replace(state.settings, extra_project_paths=extra_paths, hidden_project_paths=hidden_paths)
         save_settings(state.settings)
-        removed_runtime_dirs = cleanup_project_runtime(project.metadata.slug)
         state.owned_lock_paths.discard(project.project_path)
         current = state.selected_project()
         if current is not None and current.project_path == project.project_path:
@@ -981,14 +1008,12 @@ def build_page(state: ManagerState) -> None:
         trace_event(
             "ui.project.delete.saved",
             project=project.project_path,
+            extra_paths=extra_paths,
             hidden_paths=hidden_paths,
-            removed_runtime_dirs=removed_runtime_dirs,
+            removed_runtime_dirs=result.removed_runtime_dirs,
+            removed_local_path=result.removed_local_path,
         )
-        if removed_runtime_dirs:
-            removed_names = ", ".join(str(path) for path in removed_runtime_dirs)
-            log_message(f"Deleted {project.metadata.slug} from Manager project list and removed {removed_names}.")
-        else:
-            log_message(f"Deleted {project.metadata.slug} from Manager project list.")
+        log_message(f"Full delete complete for {project.metadata.slug}.")
         await refresh_projects()
 
     # ---- Lock refresh + shutdown -----------------------------------------
@@ -1062,3 +1087,8 @@ def _extra_project_paths_with(existing: tuple[Path, ...], project_path: Path) ->
     if resolved_project_path in resolved_existing:
         return existing
     return (*existing, resolved_project_path)
+
+
+def _project_paths_without(existing: tuple[Path, ...], project_path: Path) -> tuple[Path, ...]:
+    resolved_project_path = project_path.expanduser().resolve()
+    return tuple(path for path in existing if path.expanduser().resolve() != resolved_project_path)

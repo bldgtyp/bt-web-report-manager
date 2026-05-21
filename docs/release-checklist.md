@@ -55,6 +55,9 @@ Then exercise:
    app, and opens the new version.
 5. Vandam Dev preview starts and Stop kills the dev server cleanly.
 6. Commit & push only against a disposable repo or controlled branch.
+7. Full delete only against a disposable dev project; confirm the modal lists
+   local folder, GitHub repo, Cloudflare domain, and Cloudflare Pages project
+   before accepting.
 
 ## Partner setup: John
 

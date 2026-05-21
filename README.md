@@ -78,7 +78,10 @@ temporary folder.
 - **Project Index**: the default screen for portfolio scanning, setup, and
   navigation. It shows project metrics plus a dense project list with name,
   slug, client/building, phase, PHPP mtime, manifest mtime, git state, and
-  status chips. Workflow actions are intentionally kept off this screen.
+  status chips. The row trash action is a full cleanup delete after
+  confirmation: it lists and removes the Cloudflare custom domain, Cloudflare
+  Pages project, GitHub repo, Manager runtime folders, and local report folder.
+  Routine workflow actions are intentionally kept off this screen.
 - **Project Workspace**: opens from a project row and focuses on one project.
   It shows breadcrumb navigation, project metadata, status chips, files and
   locations, a scoped action log, and project state/status explanations.
@@ -118,8 +121,10 @@ git add -A -- . ':!.bldgtyp/lock.yaml' && git commit -m <msg> && git push
 git status --branch --porcelain=v2
 ```
 
-`gh` is invoked only by the New-project wizard's optional bootstrap path
-when `btwr new --help` is available. Executable lookup includes the configured
+`gh` is invoked by the New-project wizard's optional bootstrap path and by
+full cleanup delete for `gh repo delete <owner>/<repo> --yes`. Cloudflare
+cleanup uses `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID` when present, or
+the local Wrangler OAuth login. Executable lookup includes the configured
 value, the shared Dropbox workspace `.venv/bin`, shared renderer
 `node_modules/.bin` folders, NVM Node bins, and standard macOS Homebrew / VS
 Code command paths so Finder-launched `.app` builds can resolve the same tools

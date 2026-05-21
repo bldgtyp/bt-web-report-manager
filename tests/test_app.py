@@ -7,7 +7,7 @@ from nicegui import app as nicegui_app
 
 from bt_web_report_manager import app
 from bt_web_report_manager.ui.theme import CSS
-from bt_web_report_manager.ui.main import _hidden_project_paths_with
+from bt_web_report_manager.ui.main import _hidden_project_paths_with, _project_paths_without
 
 
 def test_native_window_override_enables_native(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -66,3 +66,12 @@ def test_hidden_project_paths_with_appends_resolved_path_once(tmp_path: Path) ->
     assert hidden == (project.resolve(),)
 
     assert _hidden_project_paths_with(hidden, project) == hidden
+
+
+def test_project_paths_without_removes_matching_resolved_path(tmp_path: Path) -> None:
+    project = tmp_path / "Project" / "04_Web"
+    other = tmp_path / "Other" / "04_Web"
+    project.mkdir(parents=True)
+    other.mkdir(parents=True)
+
+    assert _project_paths_without((project, other), project.resolve()) == (other,)
