@@ -247,8 +247,10 @@ def commit_push_command(project: ProjectStatus, settings: ManagerSettings, messa
         f"&& {quoted_git} rev-parse --abbrev-ref HEAD >/dev/null "
         f"&& "
         f"{quoted_git} add -A -- . ':!.bldgtyp/lock.yaml' "
-        f"&& {quoted_git} commit -m {quoted_message} "
-        f"&& {quoted_git} push -u origin HEAD"
+        f"&& if {quoted_git} diff --cached --quiet; then "
+        f"echo 'No project changes to commit after excluding .bldgtyp/lock.yaml.'; "
+        f"else {quoted_git} commit -m {quoted_message} "
+        f"&& {quoted_git} push -u origin HEAD; fi"
     )
     return CommandSpec(
         name="Commit & push",

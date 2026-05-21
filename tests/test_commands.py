@@ -68,6 +68,7 @@ def test_action_command_specs(tmp_path: Path) -> None:
     assert commit.args[0:2] == ("/bin/sh", "-lc")
     assert "remote get-url origin" in commit.args[2]
     assert " add -A -- . ':!.bldgtyp/lock.yaml'" in commit.args[2]
+    assert "git diff --cached --quiet" in commit.args[2]
     assert "git commit -m 'Update report'" in commit.args[2]
     assert "git push -u origin HEAD" in commit.args[2]
     assert commit.refresh_on_success
@@ -106,6 +107,39 @@ def test_commit_push_command_pushes_without_committing_lock_file(tmp_path: Path)
     assert ".bldgtyp/lock.yaml" not in tracked.stdout
     remote_log = run_command(["git", "log", "--oneline", "origin/main", "-1"], cwd=project_path)
     assert "Update report" in remote_log.stdout
+
+
+def test_commit_push_command_succeeds_when_only_lock_file_is_dirty(tmp_path: Path) -> None:
+    remote = tmp_path / "remote.git"
+    project_path = tmp_path / "project"
+    run_command(["git", "init", "--bare", str(remote)])
+    run_command(["git", "init", str(project_path)])
+    run_command(["git", "config", "user.email", "test@example.com"], cwd=project_path)
+    run_command(["git", "config", "user.name", "Test User"], cwd=project_path)
+    run_command(["git", "branch", "-M", "main"], cwd=project_path)
+    run_command(["git", "remote", "add", "origin", str(remote)], cwd=project_path)
+    (project_path / "README.md").write_text("initial\n")
+    run_command(["git", "add", "README.md"], cwd=project_path)
+    run_command(["git", "commit", "-m", "Initial"], cwd=project_path)
+    run_command(["git", "push", "-u", "origin", "main"], cwd=project_path)
+    initial_head = run_command(["git", "rev-parse", "HEAD"], cwd=project_path).stdout.strip()
+
+    lock_dir = project_path / ".bldgtyp"
+    lock_dir.mkdir()
+    (lock_dir / "lock.yaml").write_text("user: ed\n")
+    project = ProjectStatus(
+        project_path=project_path,
+        metadata=ProjectMetadata("slug", "Project", None, None, None, None, project_path / "data", None),
+        git=GitStatus(True, branch="main", dirty_count=1),
+    )
+
+    spec = commit_push_command(project, ManagerSettings(), "Update report")
+    result = run_command(spec.args, cwd=spec.cwd)
+
+    assert result.returncode == 0, result.stderr
+    assert "No project changes to commit" in result.stdout
+    current_head = run_command(["git", "rev-parse", "HEAD"], cwd=project_path).stdout.strip()
+    assert current_head == initial_head
 
 
 def test_commit_push_command_fails_before_commit_when_origin_missing(tmp_path: Path) -> None:

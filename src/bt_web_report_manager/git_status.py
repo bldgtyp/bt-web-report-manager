@@ -22,7 +22,7 @@ def read_git_status(project_path: Path, git_executable: str = "git") -> GitStatu
             return GitStatus(is_repo=False)
 
     status = run_command(
-        [git_executable, "status", "--branch", "--porcelain=v2"],
+        [git_executable, "status", "--branch", "--porcelain=v2", "--", ".", ":!.bldgtyp/lock.yaml"],
         cwd=project_path,
         timeout=10,
     )

@@ -51,6 +51,23 @@ def test_project_status_detects_no_data_and_git_dirty(tmp_path: Path) -> None:
     assert status.git.dirty_count == 2
 
 
+def test_project_status_ignores_manager_lock_file(tmp_path: Path) -> None:
+    project = _make_project(tmp_path / "Project" / "04_Web", "project")
+    subprocess.run(["git", "init"], cwd=project, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=project, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=project, check=True, capture_output=True)
+    subprocess.run(["git", "add", "project.yaml"], cwd=project, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "Initial"], cwd=project, check=True, capture_output=True)
+    lock_dir = project / ".bldgtyp"
+    lock_dir.mkdir()
+    (lock_dir / "lock.yaml").write_text("user: ed\n")
+
+    status = read_project_status(project, ManagerSettings(projects_root=tmp_path))
+
+    assert status.git.is_repo
+    assert status.git.dirty_count == 0
+
+
 def test_project_status_uses_manifest_generated_at(tmp_path: Path) -> None:
     project = _make_project(tmp_path / "Project" / "04_Web", "project")
     data = project / "data"
