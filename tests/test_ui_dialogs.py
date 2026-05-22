@@ -35,7 +35,7 @@ def test_project_variable_rows_group_by_yaml_parent() -> None:
             _VariableRowState("narrative.certification.target", ""),
             _VariableRowState("narrative.climate.weather_station_name", ""),
             _VariableRowState("narrative.mechanical.erv.type_name", ""),
-            _VariableRowState("narrative.custom_note", ""),
+            _VariableRowState("narrative.user_defined.custom_note", ""),
         ]
     )
 
@@ -43,6 +43,6 @@ def test_project_variable_rows_group_by_yaml_parent() -> None:
         ("Certification", "narrative.certification"),
         ("Climate", "narrative.climate"),
         ("Mechanical / ERV", "narrative.mechanical.erv"),
-        ("Narrative", "narrative"),
+        ("User Defined", "narrative.user_defined"),
     ]
     assert [index for index, _row in groups[2].rows] == [2]

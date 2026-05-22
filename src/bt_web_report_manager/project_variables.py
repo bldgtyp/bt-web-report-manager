@@ -14,6 +14,7 @@ from bt_web_report_manager.settings import app_support_dir
 from bt_web_report_manager.trace import trace_event
 
 VARIABLE_ROOT = "narrative"
+USER_DEFINED_VARIABLE_ROOT = f"{VARIABLE_ROOT}.user_defined"
 TEMPLATE_PROJECT_YAML_ENV = "BTWR_MANAGER_TEMPLATE_PROJECT_YAML"
 PROJECT_SCHEMA_JSON_ENV = "BTWR_MANAGER_PROJECT_SCHEMA_JSON"
 

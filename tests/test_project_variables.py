@@ -17,8 +17,9 @@ def test_read_project_variables_seeds_template_fields_and_overlays_current_proje
     project = _make_project(
         tmp_path,
         {
-            "climate": {"weather_station_name": "NYC TMY3", "custom_added_by_user": "manual"},
+            "climate": {"weather_station_name": "NYC TMY3"},
             "mechanical": {"erv": {"manufacturer_name": "Zehnder"}},
+            "user_defined": {"custom_added_by_user": "manual"},
         },
     )
     template_project_yaml = _make_template_project_yaml(
@@ -48,7 +49,7 @@ def test_read_project_variables_seeds_template_fields_and_overlays_current_proje
         ProjectVariable("narrative.climate.weather_station_name", "NYC TMY3"),
         ProjectVariable("narrative.energy_code.name", ""),
         ProjectVariable("narrative.mechanical.erv.manufacturer_name", "Zehnder"),
-        ProjectVariable("narrative.climate.custom_added_by_user", "manual"),
+        ProjectVariable("narrative.user_defined.custom_added_by_user", "manual"),
     ]
 
 
@@ -72,6 +73,7 @@ def test_write_project_variables_updates_narrative_and_preserves_other_project_y
         [
             ProjectVariable("narrative.climate.weather_station_name", "New"),
             ProjectVariable("narrative.energy_code.ach_limit", "2.5 ACH50"),
+            ProjectVariable("narrative.user_defined.cad_received_date", "May 1, 2026"),
         ],
     )
 
@@ -81,6 +83,7 @@ def test_write_project_variables_updates_narrative_and_preserves_other_project_y
     assert raw["narrative"] == {
         "climate": {"weather_station_name": "New"},
         "energy_code": {"ach_limit": "2.5 ACH50"},
+        "user_defined": {"cad_received_date": "May 1, 2026"},
     }
 
 

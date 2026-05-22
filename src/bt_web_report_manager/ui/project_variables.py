@@ -12,6 +12,7 @@ from nicegui import ui
 
 from bt_web_report_manager.models import ProjectStatus
 from bt_web_report_manager.project_variables import (
+    USER_DEFINED_VARIABLE_ROOT,
     normalize_project_variables,
     read_project_variables,
     write_project_variables,
@@ -78,7 +79,7 @@ async def open_project_variables_dialog(
                 with ui.element("div").classes("variable-empty-state"):
                     ui.icon("format_list_bulleted_add").style("font-size: 24px;")
                     ui.label("No narrative variables in project.yaml yet.").classes("empty-title")
-                    ui.label("Add a row using a narrative.* name, then save.").classes("empty-body")
+                    ui.label("Add custom rows under narrative.user_defined.*, then save.").classes("empty-body")
             else:
                 for group in _group_rows_by_yaml_parent(rows):
                     with ui.element("div").classes("variable-section"):
@@ -92,7 +93,7 @@ async def open_project_variables_dialog(
                         for index, row in group.rows:
                             with ui.element("div").classes("variable-row"):
                                 row.key_input = (
-                                    ui.input(value=row.key, placeholder="narrative.section.variable_name")
+                                    ui.input(value=row.key, placeholder="narrative.user_defined.variable_name")
                                     .props("outlined dense")
                                     .classes("variable-name-input")
                                 )
@@ -115,7 +116,7 @@ async def open_project_variables_dialog(
     def _add_row() -> None:
         trace_event("ui.variables.add_row.clicked", project=project.project_path)
         _sync_rows_from_inputs()
-        rows.append(_VariableRowState("narrative.", ""))
+        rows.append(_VariableRowState(f"{USER_DEFINED_VARIABLE_ROOT}.", ""))
         _render_rows()
 
     def _delete_row(index: int) -> None:
@@ -169,9 +170,10 @@ async def open_project_variables_dialog(
                 ui.label(project.metadata.project_title).classes("dialog-subtitle")
             count_label["widget"] = ui.label(_row_count_text()).classes("variable-count")
 
-        ui.label('Edit prose-facing project.yaml values used by <Var k="narrative..." /> shortcodes.').classes(
-            "variable-dialog-note"
-        )
+        ui.label(
+            "Edit prose-facing project.yaml values used by <Var>. "
+            "Place project-specific custom variables under narrative.user_defined.*."
+        ).classes("variable-dialog-note")
 
         rows_host["widget"] = ui.element("div").classes("variable-rows")
         _render_rows()
