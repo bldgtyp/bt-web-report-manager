@@ -174,6 +174,7 @@ def action_card_states(project: ProjectStatus | None, running: bool, enabled: bo
         "variables": selected_disabled_reason(project, running, enabled),
         "editor": open_editor_disabled_reason(project, running, enabled),
         "code_editor": selected_disabled_reason(project, running, enabled),
+        "pull": pull_disabled_reason(project, running, enabled),
         "commit": commit_disabled_reason(project, running, enabled),
         "reveal": selected_disabled_reason(project, running, enabled),
     }
@@ -183,6 +184,7 @@ def action_card_states(project: ProjectStatus | None, running: bool, enabled: bo
         "variables": ("Variables", "Edit project.yaml Var values"),
         "editor": ("Open editor (TinaCMS)", "Edit content visually"),
         "code_editor": ("Open code editor", "Open project in the configured editor"),
+        "pull": ("Pull", "Fetch/rebase from GitHub"),
         "commit": ("Commit & push", "Commit pending changes and push"),
         "reveal": ("Reveal in Finder", "Show project folder"),
     }
@@ -252,7 +254,7 @@ def status_explanations(project: ProjectStatus) -> list[str]:
     if project.git.ahead:
         lines.append(f"- Current branch is {project.git.ahead} commit(s) ahead of upstream.")
     if project.git.behind:
-        lines.append(f"- Current branch is {project.git.behind} commit(s) behind upstream; v1 does not auto-pull.")
+        lines.append(f"- Current branch is {project.git.behind} commit(s) behind upstream; use Pull to update.")
     if project.lock is not None:
         lines.append(f"- Lock state: {lock_label(project)}.")
     if project.warnings:
@@ -267,6 +269,7 @@ def action_explanations(project: ProjectStatus, running: bool) -> list[str]:
         "Reveal": selected_disabled_reason(project, running, True),
         "Open editor": open_editor_disabled_reason(project, running, True),
         "Open code editor": selected_disabled_reason(project, running, True),
+        "Pull": pull_disabled_reason(project, running, True),
         "Commit & push": commit_disabled_reason(project, running, True),
     }
     return [
@@ -299,6 +302,18 @@ def scrape_disabled_reason(project: ProjectStatus | None, running: bool, enabled
         return "Disabled: project.yaml does not define source_files.phpp_path."
     if not project.metadata.phpp_path.exists():
         return "Disabled: configured PHPP workbook is missing."
+    return None
+
+
+def pull_disabled_reason(project: ProjectStatus | None, running: bool, enabled: bool) -> str | None:
+    reason = selected_disabled_reason(project, running, enabled)
+    if reason is not None:
+        return reason
+    assert project is not None
+    if not project.git.is_repo:
+        return "Disabled: project folder is not a git worktree."
+    if project.git.remote is None:
+        return "Disabled: git remote 'origin' is not configured."
     return None
 
 

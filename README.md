@@ -93,8 +93,10 @@ temporary folder.
     lock; opens TinaCMS and the live preview when the local Astro URL is ready
   - **Open code editor**: launches the configured editor at the project
     path (e.g. `code`)
-  - **Commit & push**: prompts for a message, confirms, then
-    `git add -A && git commit -m … && git push`
+  - **Pull**: fetches origin and rebases the active branch with autostash
+  - **Commit & push**: prompts for a message, confirms, fetches/rebases the
+    active branch with autostash, commits pending project changes, then pushes
+    the branch
   - **Reveal in Finder**: `open -R <project>`
   - **Stop**: aborts the running subprocess (SIGTERM, then SIGKILL after 2s)
   - **Copy log**: copies the action log to the clipboard
@@ -117,7 +119,9 @@ temporary folder.
 btwr scrape <project_path>
 btwr preview <project_path>
 btwr editor <project_path>
-git add -A -- . ':!.bldgtyp/lock.yaml' && git commit -m <msg> && git push
+git fetch origin <branch> && git rebase --autostash origin/<branch>
+git add -A -- . ':!.bldgtyp/lock.yaml' && git commit -m <msg>
+git push -u origin HEAD:<branch>
 git status --branch --porcelain=v2
 ```
 

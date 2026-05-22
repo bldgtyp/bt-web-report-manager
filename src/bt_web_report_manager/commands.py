@@ -239,24 +239,46 @@ def open_code_editor_command(project: ProjectStatus, settings: ManagerSettings) 
     )
 
 
+def pull_rebase_command(project: ProjectStatus, settings: ManagerSettings) -> CommandSpec:
+    quoted_git = shlex.quote(command_executable(settings.git_executable))
+    return CommandSpec(
+        name="Pull",
+        args=("/bin/sh", "-lc", _git_fetch_rebase_active_branch_script(quoted_git)),
+        cwd=project.project_path,
+        refresh_on_success=True,
+    )
+
+
 def commit_push_command(project: ProjectStatus, settings: ManagerSettings, message: str) -> CommandSpec:
     quoted_message = shlex.quote(message)
     quoted_git = shlex.quote(command_executable(settings.git_executable))
     script = (
-        f"{quoted_git} remote get-url origin >/dev/null "
-        f"&& {quoted_git} rev-parse --abbrev-ref HEAD >/dev/null "
+        f"{_git_fetch_rebase_active_branch_script(quoted_git)} "
         f"&& "
         f"{quoted_git} add -A -- . ':!.bldgtyp/lock.yaml' "
         f"&& if {quoted_git} diff --cached --quiet; then "
         f"echo 'No project changes to commit after excluding .bldgtyp/lock.yaml.'; "
-        f"else {quoted_git} commit -m {quoted_message} "
-        f"&& {quoted_git} push -u origin HEAD; fi"
+        f"else {quoted_git} commit -m {quoted_message}; fi "
+        f"&& {quoted_git} push -u origin HEAD:\"$branch\""
     )
     return CommandSpec(
         name="Commit & push",
         args=("/bin/sh", "-lc", script),
         cwd=project.project_path,
         refresh_on_success=True,
+    )
+
+
+def _git_fetch_rebase_active_branch_script(quoted_git: str) -> str:
+    return (
+        f"{quoted_git} remote get-url origin >/dev/null "
+        f"&& branch=$({quoted_git} branch --show-current) "
+        f"&& if [ -z \"$branch\" ]; then "
+        f"echo 'Git sync requires a named branch, not detached HEAD.'; exit 1; fi "
+        f"&& if {quoted_git} ls-remote --exit-code --heads origin \"$branch\" >/dev/null 2>&1; then "
+        f"{quoted_git} fetch origin \"$branch:refs/remotes/origin/$branch\" "
+        f"&& {quoted_git} rebase --autostash \"origin/$branch\"; "
+        f"else echo \"No origin/$branch yet; nothing to pull.\"; fi"
     )
 
 

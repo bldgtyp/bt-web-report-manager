@@ -25,6 +25,7 @@ from bt_web_report_manager.commands import (
     dev_preview_command,
     open_code_editor_command,
     open_editor_command,
+    pull_rebase_command,
     reveal_command,
     scrape_command,
     sync_per_project_workflows_command,
@@ -514,6 +515,7 @@ def build_page(state: ManagerState) -> None:
                         "Publish",
                         "publish",
                         [
+                            ("pull", "download", run_pull, ""),
                             ("commit", "upload", run_commit_push, "is-primary"),
                             ("reveal", "folder_open", run_reveal, ""),
                         ],
@@ -917,6 +919,35 @@ def build_page(state: ManagerState) -> None:
             await _start_command(reveal_command(project))
         else:
             trace_event("ui.action.reveal.no_project")
+
+    async def run_pull() -> None:
+        project = state.selected_project()
+        if project is None or not project.git.is_repo or project.git.remote is None:
+            trace_event(
+                "ui.action.pull.blocked",
+                project=project.project_path if project is not None else None,
+                is_repo=project.git.is_repo if project is not None else None,
+                remote=project.git.remote if project is not None else None,
+            )
+            log_message("Pull requires a git worktree with a configured origin remote.")
+            return
+        ok = await confirm_dialog(
+            title="Pull from GitHub",
+            message=(
+                "Fetch origin and rebase the current branch with autostash?\n\n"
+                f"path: {project.project_path}\n"
+                "Uncommitted changes will be stashed and restored by git. If there is a conflict, "
+                "the command stops and the log will show the rebase state."
+            ),
+            confirm_label="Pull",
+        )
+        if not ok:
+            trace_event("ui.action.pull.cancelled", project=project.project_path)
+            log_message("Pull canceled.")
+            return
+        if await prepare_mutating_action(project):
+            trace_event("ui.action.pull.confirmed", project=project.project_path)
+            await _start_command(pull_rebase_command(project, state.settings))
 
     async def run_commit_push() -> None:
         project = state.selected_project()

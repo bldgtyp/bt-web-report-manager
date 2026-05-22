@@ -10,6 +10,7 @@ from bt_web_report_manager.commands import (
     node_toolchain_bin_dirs,
     open_code_editor_command,
     open_editor_command,
+    pull_rebase_command,
     renderer_bin_dirs,
     run_command,
     scrape_command,
@@ -64,9 +65,15 @@ def test_action_command_specs(tmp_path: Path) -> None:
     assert open_editor_command(project, settings).cwd == tmp_path
     assert open_editor_command(project, settings).long_running
     assert open_code_editor_command(project, settings).args == ("code-dev", str(tmp_path))
+    pull = pull_rebase_command(project, settings)
+    assert pull.args[0:2] == ("/bin/sh", "-lc")
+    assert "remote get-url origin" in pull.args[2]
+    assert "rebase --autostash" in pull.args[2]
+    assert pull.refresh_on_success
     commit = commit_push_command(project, settings, "Update report")
     assert commit.args[0:2] == ("/bin/sh", "-lc")
     assert "remote get-url origin" in commit.args[2]
+    assert "rebase --autostash" in commit.args[2]
     assert " add -A -- . ':!.bldgtyp/lock.yaml'" in commit.args[2]
     assert "git diff --cached --quiet" in commit.args[2]
     assert "git commit -m 'Update report'" in commit.args[2]
@@ -162,6 +169,89 @@ def test_commit_push_command_fails_before_commit_when_origin_missing(tmp_path: P
     assert "No such remote 'origin'" in result.stderr
     log = run_command(["git", "log", "--oneline"], cwd=project_path)
     assert log.returncode != 0
+
+
+def test_commit_push_command_rebases_existing_ahead_commit_before_push(tmp_path: Path) -> None:
+    remote = tmp_path / "remote.git"
+    project_path = tmp_path / "project"
+    updater_path = tmp_path / "updater"
+    run_command(["git", "init", "--bare", str(remote)])
+    run_command(["git", "init", str(project_path)])
+    run_command(["git", "config", "user.email", "test@example.com"], cwd=project_path)
+    run_command(["git", "config", "user.name", "Test User"], cwd=project_path)
+    run_command(["git", "branch", "-M", "main"], cwd=project_path)
+    run_command(["git", "remote", "add", "origin", str(remote)], cwd=project_path)
+    (project_path / "README.md").write_text("initial\n")
+    run_command(["git", "add", "README.md"], cwd=project_path)
+    run_command(["git", "commit", "-m", "Initial"], cwd=project_path)
+    run_command(["git", "push", "-u", "origin", "main"], cwd=project_path)
+
+    (project_path / "project.yaml").write_text("schema_version: 0.2.0\n")
+    run_command(["git", "add", "project.yaml"], cwd=project_path)
+    run_command(["git", "commit", "-m", "Update report"], cwd=project_path)
+
+    run_command(["git", "clone", str(remote), str(updater_path)])
+    run_command(["git", "config", "user.email", "test@example.com"], cwd=updater_path)
+    run_command(["git", "config", "user.name", "Test User"], cwd=updater_path)
+    workflows = updater_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "ci.yml").write_text("name: CI\n")
+    run_command(["git", "add", ".github/workflows/ci.yml"], cwd=updater_path)
+    run_command(["git", "commit", "-m", "Sync workflows"], cwd=updater_path)
+    run_command(["git", "push", "origin", "main"], cwd=updater_path)
+
+    lock_dir = project_path / ".bldgtyp"
+    lock_dir.mkdir()
+    (lock_dir / "lock.yaml").write_text("user: ed\n")
+    project = ProjectStatus(
+        project_path=project_path,
+        metadata=ProjectMetadata("slug", "Project", None, None, None, None, project_path / "data", None),
+        git=GitStatus(True, branch="main", dirty_count=1),
+    )
+
+    spec = commit_push_command(project, ManagerSettings(), "No new commit")
+    result = run_command(spec.args, cwd=spec.cwd)
+
+    assert result.returncode == 0, result.stderr
+    assert "No project changes to commit" in result.stdout
+    remote_log = run_command(["git", "log", "--oneline", "origin/main", "-3"], cwd=project_path)
+    assert "Update report" in remote_log.stdout
+    assert "Sync workflows" in remote_log.stdout
+
+
+def test_pull_rebase_command_updates_clean_behind_branch(tmp_path: Path) -> None:
+    remote = tmp_path / "remote.git"
+    project_path = tmp_path / "project"
+    updater_path = tmp_path / "updater"
+    run_command(["git", "init", "--bare", str(remote)])
+    run_command(["git", "init", str(project_path)])
+    run_command(["git", "config", "user.email", "test@example.com"], cwd=project_path)
+    run_command(["git", "config", "user.name", "Test User"], cwd=project_path)
+    run_command(["git", "branch", "-M", "main"], cwd=project_path)
+    run_command(["git", "remote", "add", "origin", str(remote)], cwd=project_path)
+    (project_path / "README.md").write_text("initial\n")
+    run_command(["git", "add", "README.md"], cwd=project_path)
+    run_command(["git", "commit", "-m", "Initial"], cwd=project_path)
+    run_command(["git", "push", "-u", "origin", "main"], cwd=project_path)
+
+    run_command(["git", "clone", str(remote), str(updater_path)])
+    run_command(["git", "config", "user.email", "test@example.com"], cwd=updater_path)
+    run_command(["git", "config", "user.name", "Test User"], cwd=updater_path)
+    (updater_path / "README.md").write_text("initial\nremote\n")
+    run_command(["git", "commit", "-am", "Remote update"], cwd=updater_path)
+    run_command(["git", "push", "origin", "main"], cwd=updater_path)
+
+    project = ProjectStatus(
+        project_path=project_path,
+        metadata=ProjectMetadata("slug", "Project", None, None, None, None, project_path / "data", None),
+        git=GitStatus(True, branch="main", dirty_count=0, remote=str(remote)),
+    )
+
+    spec = pull_rebase_command(project, ManagerSettings())
+    result = run_command(spec.args, cwd=spec.cwd)
+
+    assert result.returncode == 0, result.stderr
+    assert (project_path / "README.md").read_text() == "initial\nremote\n"
 
 
 def test_resolve_executable_uses_manager_search_path(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
