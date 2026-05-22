@@ -137,6 +137,7 @@ def test_action_card_states_preserve_disabled_reasons(tmp_path: Path) -> None:
     states = action_card_states(status, running=False, enabled=True)
 
     assert states["scrape"].enabled
+    assert states["variables"].enabled
     assert states["commit"].enabled is False
     assert "clean" in states["commit"].tooltip
 

@@ -80,6 +80,7 @@ from bt_web_report_manager.ui.helpers import (
 )
 from bt_web_report_manager.ui.new_project import open_new_project_wizard
 from bt_web_report_manager.ui.preview import editor_browser_urls, local_preview_url_from_log_line
+from bt_web_report_manager.ui.project_variables import open_project_variables_dialog
 from bt_web_report_manager.ui.runner import ProcessRunner
 from bt_web_report_manager.ui.state import ManagerState
 from bt_web_report_manager.ui.theme import apply_theme
@@ -91,6 +92,7 @@ LOCK_REFRESH_INTERVAL_SECONDS = 60.0
 ACTIVE_TOOLTIPS: dict[str, str] = {
     "scrape": "Run btwr scrape against the configured PHPP workbook. Writes a Dropbox lock.",
     "dev": "Start pnpm dev for live local preview at http://localhost:4321.",
+    "variables": "Edit narrative.* project variables stored in project.yaml.",
     "editor": "Start the TinaCMS authoring server (pnpm dev:editor) to edit project content.",
     "code_editor": "Open this project in the configured code editor (VS Code / Cursor / etc).",
     "commit": "git add -A, commit with a message, and push the current branch.",
@@ -495,6 +497,7 @@ def build_page(state: ManagerState) -> None:
                         "Author",
                         "author",
                         [
+                            ("variables", "edit_note", run_project_variables, ""),
                             ("editor", "edit_square", run_open_editor, ""),
                             ("code_editor", "code", run_open_code_editor, ""),
                         ],
@@ -661,6 +664,7 @@ def build_page(state: ManagerState) -> None:
         reasons = {
             "scrape": scrape_disabled_reason(project, running, enabled),
             "dev": selected_disabled_reason(project, running, enabled),
+            "variables": selected_disabled_reason(project, running, enabled),
             "editor": open_editor_disabled_reason(project, running, enabled),
             "code_editor": selected_disabled_reason(project, running, enabled),
             "commit": commit_disabled_reason(project, running, enabled),
@@ -858,6 +862,24 @@ def build_page(state: ManagerState) -> None:
                 preview_browser["armed"] = False
                 preview_browser["opened"] = False
                 preview_browser["mode"] = "preview"
+
+    async def run_project_variables() -> None:
+        project = state.selected_project()
+        if project is None:
+            trace_event("ui.action.variables.no_project")
+            return
+        if runner.is_running:
+            trace_event("ui.action.variables.blocked_running", project=project.project_path)
+            log_message("Variables are unavailable while a command is running.")
+            return
+
+        async def _before_save() -> bool:
+            return await prepare_mutating_action(project)
+
+        saved = await open_project_variables_dialog(project, before_save=_before_save)
+        if saved:
+            log_message(f"Project variables saved for {project.metadata.slug}.")
+            await refresh_projects(project.project_path)
 
     async def run_open_code_editor() -> None:
         project = state.selected_project()

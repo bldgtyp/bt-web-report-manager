@@ -983,6 +983,83 @@ p, span, div, label, code, pre {
   white-space: pre-wrap;
   word-break: break-word;
 }
+.variable-dialog-card {
+  width: min(980px, calc(100vw - 48px));
+  max-height: calc(100vh - 72px);
+  overflow: hidden;
+}
+.variable-count {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  margin-top: 2px;
+}
+.variable-dialog-note {
+  color: var(--text-2);
+  font-size: 12.5px;
+  line-height: 1.45;
+  margin-top: 8px;
+}
+.variable-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+  max-height: min(58vh, 620px);
+  overflow: auto;
+  padding-right: 4px;
+}
+.variable-header-row,
+.variable-row {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.95fr) minmax(320px, 1.35fr) 38px;
+  gap: 10px;
+  align-items: start;
+}
+.variable-header-row {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0 4px;
+}
+.variable-row {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+}
+.variable-name-input .q-field__native,
+.variable-value-input .q-field__native {
+  font-family: var(--font-mono) !important;
+  font-size: 12px !important;
+}
+.variable-value-input textarea {
+  min-height: 38px !important;
+}
+.variable-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 42px 18px;
+  color: var(--text-muted);
+  text-align: center;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.variable-empty-state .empty-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-2);
+}
+.variable-empty-state .empty-body {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
 
 /* Scrollbars */
 ::-webkit-scrollbar { width: 10px; height: 10px; }

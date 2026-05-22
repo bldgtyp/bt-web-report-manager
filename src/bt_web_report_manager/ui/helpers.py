@@ -171,6 +171,7 @@ def action_card_states(project: ProjectStatus | None, running: bool, enabled: bo
     reasons = {
         "scrape": scrape_disabled_reason(project, running, enabled),
         "dev": selected_disabled_reason(project, running, enabled),
+        "variables": selected_disabled_reason(project, running, enabled),
         "editor": open_editor_disabled_reason(project, running, enabled),
         "code_editor": selected_disabled_reason(project, running, enabled),
         "commit": commit_disabled_reason(project, running, enabled),
@@ -179,6 +180,7 @@ def action_card_states(project: ProjectStatus | None, running: bool, enabled: bo
     details = {
         "scrape": ("Scrape PHPP", "Refresh data from PHPP"),
         "dev": ("Dev preview", "Serve on localhost:4321"),
+        "variables": ("Variables", "Edit project.yaml Var values"),
         "editor": ("Open editor (TinaCMS)", "Edit content visually"),
         "code_editor": ("Open code editor", "Open project in the configured editor"),
         "commit": ("Commit & push", "Commit pending changes and push"),
