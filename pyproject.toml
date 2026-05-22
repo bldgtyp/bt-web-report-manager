@@ -53,6 +53,7 @@ include = ["bt_web_report_manager*"]
 
 [tool.black]
 line-length = 120
+target-version = ["py311"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
