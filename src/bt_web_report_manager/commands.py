@@ -258,3 +258,27 @@ def commit_push_command(project: ProjectStatus, settings: ManagerSettings, messa
         cwd=project.project_path,
         refresh_on_success=True,
     )
+
+
+def sync_per_project_workflows_command(settings: ManagerSettings) -> CommandSpec | None:
+    """Run scripts/sync-per-project-workflows.sh in the bt-web-report-template
+    repo. Iterates every repo in the bldgtyp-projects org and force-syncs
+    ci.yml / deploy.yml to the canonical reusable-workflow form, plus copies
+    any template-required content files the per-project doesn't have.
+
+    Returns None if the renderer source is not configured or the script is
+    missing — the caller should surface a friendly error.
+    """
+
+    if settings.renderer_source is None:
+        return None
+    script = settings.renderer_source / "scripts" / "sync-per-project-workflows.sh"
+    if not script.exists():
+        return None
+    return CommandSpec(
+        name="Update per-project workflows",
+        args=("/bin/bash", str(script)),
+        cwd=settings.renderer_source,
+        long_running=True,
+        refresh_on_success=False,
+    )

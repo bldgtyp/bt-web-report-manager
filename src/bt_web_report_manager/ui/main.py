@@ -27,6 +27,7 @@ from bt_web_report_manager.commands import (
     open_editor_command,
     reveal_command,
     scrape_command,
+    sync_per_project_workflows_command,
 )
 from bt_web_report_manager.deletion import (
     ProjectDeleteError,
@@ -343,6 +344,13 @@ def build_page(state: ManagerState) -> None:
             lambda: on_check_updates(),
             "",
             "Poll GitHub Releases for a newer manager build.",
+        )
+        _tool_button(
+            "Update projects",
+            "sync",
+            lambda: on_sync_per_project_workflows(),
+            "",
+            "Force every per-project repo in the bldgtyp-projects org to the canonical CI/deploy workflow and sync any missing template-required content files.",
         )
 
         root_tag = ui.html("").classes("root-tag")
@@ -990,6 +998,42 @@ def build_page(state: ManagerState) -> None:
     async def on_check_updates() -> None:
         trace_event("ui.toolbar.check_updates.clicked")
         await run_update_check(state.settings, log_message)
+
+    async def on_sync_per_project_workflows() -> None:
+        trace_event("ui.toolbar.sync_per_project_workflows.clicked")
+        if runner.is_running:
+            log_message("Update per-project workflows is unavailable while another command is running.")
+            ui.notify("Stop the running command first.", type="warning")
+            return
+        spec = sync_per_project_workflows_command(state.settings)
+        if spec is None:
+            log_message(
+                "Update per-project workflows: renderer source is not configured or "
+                "scripts/sync-per-project-workflows.sh is missing. Set the renderer "
+                "source in Settings."
+            )
+            ui.notify(
+                "Renderer source not configured. Set it in Settings to enable this action.",
+                type="warning",
+            )
+            return
+        ok = await confirm_dialog(
+            title="Update per-project workflows",
+            message=(
+                "This pushes commits to every repo in bldgtyp-projects, replacing "
+                "ci.yml / deploy.yml with the canonical reusable-workflow form and "
+                "adding any missing template-required content files (existing files "
+                "are never overwritten). Repos already in the canonical state are "
+                "left alone.\n\n"
+                "Output streams to the log below."
+            ),
+            confirm_label="Run sync",
+        )
+        if not ok:
+            trace_event("ui.toolbar.sync_per_project_workflows.cancelled")
+            log_message("Update per-project workflows canceled.")
+            return
+        await _start_command(spec)
 
     async def delete_project(project: ProjectStatus) -> None:
         trace_event("ui.project.delete.clicked", project=project.project_path, slug=project.metadata.slug)
