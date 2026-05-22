@@ -12,7 +12,7 @@ from bt_web_report_manager.project_variables import (
 )
 
 
-def test_read_project_variables_loads_current_project_yaml_fields(tmp_path: Path) -> None:
+def test_read_project_variables_seeds_template_fields_and_overlays_current_project_values(tmp_path: Path) -> None:
     project = _make_project(
         tmp_path,
         {
@@ -20,14 +20,33 @@ def test_read_project_variables_loads_current_project_yaml_fields(tmp_path: Path
             "mechanical": {"erv": {"manufacturer_name": "Zehnder"}},
         },
     )
+    template_project_yaml = _make_template_project_yaml(
+        tmp_path,
+        {
+            "certification": {"target": "Template target"},
+            "climate": {"weather_station_name": "Template weather"},
+            "mechanical": {"erv": {"manufacturer_name": "Template ERV"}},
+            "energy_code": {"name": "Template code"},
+        },
+    )
 
-    variables = read_project_variables(project)
+    variables = read_project_variables(project, template_project_yaml=template_project_yaml)
 
     assert variables == [
+        ProjectVariable("narrative.certification.target", ""),
         ProjectVariable("narrative.climate.weather_station_name", "NYC TMY3"),
-        ProjectVariable("narrative.climate.custom_added_by_user", "manual"),
         ProjectVariable("narrative.mechanical.erv.manufacturer_name", "Zehnder"),
+        ProjectVariable("narrative.energy_code.name", ""),
+        ProjectVariable("narrative.climate.custom_added_by_user", "manual"),
     ]
+
+
+def test_read_project_variables_falls_back_to_project_fields_when_template_is_missing(tmp_path: Path) -> None:
+    project = _make_project(tmp_path, {"climate": {"weather_station_name": "NYC TMY3"}})
+
+    variables = read_project_variables(project, template_project_yaml=tmp_path / "missing-project.yaml")
+
+    assert variables == [ProjectVariable("narrative.climate.weather_station_name", "NYC TMY3")]
 
 
 def test_write_project_variables_updates_narrative_and_preserves_other_project_yaml_values(tmp_path: Path) -> None:
@@ -76,7 +95,19 @@ def test_normalize_project_variables_rejects_duplicate_names() -> None:
 def _make_project(tmp_path: Path, narrative: dict[str, object]) -> Path:
     project = tmp_path / "Project" / "04_Web"
     project.mkdir(parents=True)
-    (project / "project.yaml").write_text(
+    _write_project_yaml(project / "project.yaml", narrative)
+    return project
+
+
+def _make_template_project_yaml(tmp_path: Path, narrative: dict[str, object]) -> Path:
+    template = tmp_path / "template" / "project.yaml"
+    template.parent.mkdir()
+    _write_project_yaml(template, narrative)
+    return template
+
+
+def _write_project_yaml(path: Path, narrative: dict[str, object]) -> None:
+    path.write_text(
         yaml.safe_dump(
             {
                 "schema_version": "0.2.0",
@@ -91,4 +122,3 @@ def _make_project(tmp_path: Path, narrative: dict[str, object]) -> Path:
             sort_keys=False,
         )
     )
-    return project

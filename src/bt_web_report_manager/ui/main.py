@@ -876,7 +876,12 @@ def build_page(state: ManagerState) -> None:
         async def _before_save() -> bool:
             return await prepare_mutating_action(project)
 
-        saved = await open_project_variables_dialog(project, before_save=_before_save)
+        template_project_yaml = (
+            state.settings.renderer_source / "project.yaml" if state.settings.renderer_source is not None else None
+        )
+        saved = await open_project_variables_dialog(
+            project, template_project_yaml=template_project_yaml, before_save=_before_save
+        )
         if saved:
             log_message(f"Project variables saved for {project.metadata.slug}.")
             await refresh_projects(project.project_path)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from nicegui import ui
@@ -29,12 +30,15 @@ class _VariableRowState:
 async def open_project_variables_dialog(
     project: ProjectStatus,
     *,
+    template_project_yaml: Path | None = None,
     before_save: Callable[[], Awaitable[bool]] | None = None,
 ) -> bool:
     """Open the project variable form and save changed rows to ``project.yaml``."""
     trace_event("ui.variables.open", project=project.project_path, slug=project.metadata.slug)
     try:
-        loaded_variables = await asyncio.to_thread(read_project_variables, project.project_path)
+        loaded_variables = await asyncio.to_thread(
+            read_project_variables, project.project_path, template_project_yaml=template_project_yaml
+        )
     except (OSError, ValueError) as exc:
         trace_exception("ui.variables.read_failed", exc, project=project.project_path, slug=project.metadata.slug)
         ui.notify(str(exc), type="negative", multi_line=True)

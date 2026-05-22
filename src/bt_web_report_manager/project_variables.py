@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from bt_web_report_manager.settings import app_support_dir
 from bt_web_report_manager.trace import trace_event
 
 VARIABLE_ROOT = "narrative"
+TEMPLATE_PROJECT_YAML_ENV = "BTWR_MANAGER_TEMPLATE_PROJECT_YAML"
 
 
 @dataclass(frozen=True)
@@ -19,23 +22,17 @@ class ProjectVariable:
     value: str
 
 
-def read_project_variables(project_path: Path) -> list[ProjectVariable]:
-    """Return the current ``narrative.*`` variable leaves from ``project.yaml``."""
+def read_project_variables(project_path: Path, template_project_yaml: Path | None = None) -> list[ProjectVariable]:
+    """Return template-seeded ``narrative.*`` variable leaves for a project."""
     project_yaml = project_path / "project.yaml"
-    raw = _read_project_yaml(project_yaml)
-    narrative = raw.get(VARIABLE_ROOT) or {}
-    if not isinstance(narrative, dict):
-        msg = f"{VARIABLE_ROOT} must be a mapping in {project_yaml}"
-        raise ValueError(msg)
-
-    variables = [
-        ProjectVariable(f"{VARIABLE_ROOT}.{'.'.join(path)}", _variable_value_to_string(value))
-        for path, value in _flatten_variable_leaves(narrative)
-    ]
+    template_variables = _template_variable_keys(template_project_yaml)
+    project_variables = _read_project_yaml_variables(project_yaml)
+    variables = _merge_template_and_project_variables(template_variables, project_variables)
     trace_event(
         "projects.variables.read",
         project_path=project_path,
         project_yaml=project_yaml,
+        template_project_yaml=template_project_yaml,
         keys=[variable.key for variable in variables],
     )
     return variables
@@ -69,6 +66,68 @@ def normalize_project_variables(rows: list[tuple[str, str]]) -> list[ProjectVari
         seen.add(key)
         out.append(ProjectVariable(key=key, value=raw_value))
     return out
+
+
+def _read_project_yaml_variables(project_yaml: Path) -> list[ProjectVariable]:
+    raw = _read_project_yaml(project_yaml)
+    narrative = raw.get(VARIABLE_ROOT) or {}
+    if not isinstance(narrative, dict):
+        msg = f"{VARIABLE_ROOT} must be a mapping in {project_yaml}"
+        raise ValueError(msg)
+    return [
+        ProjectVariable(f"{VARIABLE_ROOT}.{'.'.join(path)}", _variable_value_to_string(value))
+        for path, value in _flatten_variable_leaves(narrative)
+    ]
+
+
+def _template_variable_keys(template_project_yaml: Path | None) -> list[ProjectVariable]:
+    path = template_project_yaml or _default_template_project_yaml()
+    if path is None:
+        trace_event("projects.variables.template_missing")
+        return []
+    try:
+        variables = _read_project_yaml_variables(path)
+    except (OSError, ValueError) as exc:
+        trace_event("projects.variables.template_read_failed", path=path, error=str(exc))
+        return []
+    return [ProjectVariable(variable.key, "") for variable in variables]
+
+
+def _default_template_project_yaml() -> Path | None:
+    for candidate in _template_project_yaml_candidates():
+        if candidate.exists():
+            trace_event("projects.variables.template_found", path=candidate)
+            return candidate
+        trace_event("projects.variables.template_candidate_missing", path=candidate)
+    return None
+
+
+def _template_project_yaml_candidates() -> tuple[Path, ...]:
+    candidates: list[Path] = []
+    env_path = os.environ.get(TEMPLATE_PROJECT_YAML_ENV)
+    if env_path:
+        candidates.append(Path(env_path).expanduser())
+    workspace_root = Path(__file__).resolve().parents[3]
+    candidates.extend(
+        [
+            workspace_root / "bt-web-report-template" / "project.yaml",
+            app_support_dir() / "renderer" / "current" / "project.yaml",
+            Path("~/Dropbox/bldgtyp-00/00_PH_Tools/bt-web-report/bt-web-report-template/project.yaml").expanduser(),
+        ]
+    )
+    return tuple(dict.fromkeys(candidates))
+
+
+def _merge_template_and_project_variables(
+    template_variables: list[ProjectVariable], project_variables: list[ProjectVariable]
+) -> list[ProjectVariable]:
+    values_by_key = {variable.key: variable.value for variable in template_variables}
+    ordered_keys = [variable.key for variable in template_variables]
+    for variable in project_variables:
+        if variable.key not in values_by_key:
+            ordered_keys.append(variable.key)
+        values_by_key[variable.key] = variable.value
+    return [ProjectVariable(key, values_by_key[key]) for key in ordered_keys]
 
 
 def _read_project_yaml(project_yaml: Path) -> dict[str, Any]:
