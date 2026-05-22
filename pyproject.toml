@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bt-web-report-manager"
-version = "0.0.11"
+version = "0.0.12"
 description = "NiceGUI macOS dashboard that wraps btwr — distributed as an .app via GitHub Releases."
 readme = "README.md"
 license = { text = "GPL-3.0-or-later" }
