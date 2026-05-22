@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import yaml
@@ -26,17 +27,27 @@ def test_read_project_variables_seeds_template_fields_and_overlays_current_proje
             "certification": {"target": "Template target"},
             "climate": {"weather_station_name": "Template weather"},
             "mechanical": {"erv": {"manufacturer_name": "Template ERV"}},
-            "energy_code": {"name": "Template code"},
+        },
+    )
+    project_schema_json = _make_project_schema_json(
+        tmp_path,
+        {
+            "CertificationNarrative": ["target"],
+            "ClimateNarrative": ["weather_station_name"],
+            "EnergyCodeNarrative": ["name"],
+            "ErvNarrative": ["manufacturer_name"],
         },
     )
 
-    variables = read_project_variables(project, template_project_yaml=template_project_yaml)
+    variables = read_project_variables(
+        project, template_project_yaml=template_project_yaml, project_schema_json=project_schema_json
+    )
 
     assert variables == [
         ProjectVariable("narrative.certification.target", ""),
         ProjectVariable("narrative.climate.weather_station_name", "NYC TMY3"),
-        ProjectVariable("narrative.mechanical.erv.manufacturer_name", "Zehnder"),
         ProjectVariable("narrative.energy_code.name", ""),
+        ProjectVariable("narrative.mechanical.erv.manufacturer_name", "Zehnder"),
         ProjectVariable("narrative.climate.custom_added_by_user", "manual"),
     ]
 
@@ -44,7 +55,11 @@ def test_read_project_variables_seeds_template_fields_and_overlays_current_proje
 def test_read_project_variables_falls_back_to_project_fields_when_template_is_missing(tmp_path: Path) -> None:
     project = _make_project(tmp_path, {"climate": {"weather_station_name": "NYC TMY3"}})
 
-    variables = read_project_variables(project, template_project_yaml=tmp_path / "missing-project.yaml")
+    variables = read_project_variables(
+        project,
+        template_project_yaml=tmp_path / "missing-project.yaml",
+        project_schema_json=tmp_path / "missing-project.schema.json",
+    )
 
     assert variables == [ProjectVariable("narrative.climate.weather_station_name", "NYC TMY3")]
 
@@ -104,6 +119,34 @@ def _make_template_project_yaml(tmp_path: Path, narrative: dict[str, object]) ->
     template.parent.mkdir()
     _write_project_yaml(template, narrative)
     return template
+
+
+def _make_project_schema_json(tmp_path: Path, defs: dict[str, list[str]]) -> Path:
+    schema = tmp_path / "schema" / "project.schema.json"
+    schema.parent.mkdir()
+    schema.write_text(
+        json.dumps(
+            {
+                "properties": {
+                    "narrative": {
+                        "properties": {
+                            "certification": {"$ref": "#/$defs/CertificationNarrative"},
+                            "climate": {"$ref": "#/$defs/ClimateNarrative"},
+                            "energy_code": {"$ref": "#/$defs/EnergyCodeNarrative"},
+                            "mechanical": {
+                                "properties": {"erv": {"$ref": "#/$defs/ErvNarrative"}},
+                            },
+                        }
+                    }
+                },
+                "$defs": {
+                    name: {"properties": {field: {"anyOf": [{"type": "string"}, {"type": "null"}]} for field in fields}}
+                    for name, fields in defs.items()
+                },
+            }
+        )
+    )
+    return schema
 
 
 def _write_project_yaml(path: Path, narrative: dict[str, object]) -> None:

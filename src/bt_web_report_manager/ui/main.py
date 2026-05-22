@@ -879,8 +879,18 @@ def build_page(state: ManagerState) -> None:
         template_project_yaml = (
             state.settings.renderer_source / "project.yaml" if state.settings.renderer_source is not None else None
         )
+        project_schema_json = (
+            state.settings.renderer_source.parent / "bt-web-report-schemas" / "schemas" / "project.schema.json"
+            if state.settings.renderer_source is not None
+            else None
+        )
+        if project_schema_json is not None and not project_schema_json.exists():
+            project_schema_json = None
         saved = await open_project_variables_dialog(
-            project, template_project_yaml=template_project_yaml, before_save=_before_save
+            project,
+            template_project_yaml=template_project_yaml,
+            project_schema_json=project_schema_json,
+            before_save=_before_save,
         )
         if saved:
             log_message(f"Project variables saved for {project.metadata.slug}.")

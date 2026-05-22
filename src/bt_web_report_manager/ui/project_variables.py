@@ -31,13 +31,17 @@ async def open_project_variables_dialog(
     project: ProjectStatus,
     *,
     template_project_yaml: Path | None = None,
+    project_schema_json: Path | None = None,
     before_save: Callable[[], Awaitable[bool]] | None = None,
 ) -> bool:
     """Open the project variable form and save changed rows to ``project.yaml``."""
     trace_event("ui.variables.open", project=project.project_path, slug=project.metadata.slug)
     try:
         loaded_variables = await asyncio.to_thread(
-            read_project_variables, project.project_path, template_project_yaml=template_project_yaml
+            read_project_variables,
+            project.project_path,
+            template_project_yaml=template_project_yaml,
+            project_schema_json=project_schema_json,
         )
     except (OSError, ValueError) as exc:
         trace_exception("ui.variables.read_failed", exc, project=project.project_path, slug=project.metadata.slug)
@@ -76,29 +80,36 @@ async def open_project_variables_dialog(
                     ui.label("No narrative variables in project.yaml yet.").classes("empty-title")
                     ui.label("Add a row using a narrative.* name, then save.").classes("empty-body")
             else:
-                with ui.element("div").classes("variable-header-row"):
-                    ui.label("Name")
-                    ui.label("Input")
-                    ui.label("")
-                for index, row in enumerate(rows):
-                    with ui.element("div").classes("variable-row"):
-                        row.key_input = (
-                            ui.input(value=row.key, placeholder="narrative.section.variable_name")
-                            .props("outlined dense")
-                            .classes("variable-name-input")
-                        )
-                        row.value_input = (
-                            ui.textarea(value=row.value, placeholder="Rendered value")
-                            .props("outlined dense autogrow")
-                            .classes("variable-value-input")
-                        )
-                        ui.button(
-                            icon="delete",
-                            color=None,
-                            on_click=lambda _e, row_index=index: _delete_row(row_index),
-                        ).props('flat dense round aria-label="Delete variable row"').classes("icon-tool").tooltip(
-                            "Delete this variable row"
-                        )
+                for group in _group_rows_by_yaml_parent(rows):
+                    with ui.element("div").classes("variable-section"):
+                        with ui.element("div").classes("variable-section-header"):
+                            ui.label(group.label).classes("variable-section-title")
+                            ui.label(group.path).classes("variable-section-path")
+                        with ui.element("div").classes("variable-header-row"):
+                            ui.label("Name")
+                            ui.label("Input")
+                            ui.label("")
+                        for index, row in group.rows:
+                            with ui.element("div").classes("variable-row"):
+                                row.key_input = (
+                                    ui.input(value=row.key, placeholder="narrative.section.variable_name")
+                                    .props("outlined dense")
+                                    .classes("variable-name-input")
+                                )
+                                row.value_input = (
+                                    ui.textarea(value=row.value, placeholder="Rendered value")
+                                    .props("outlined dense autogrow")
+                                    .classes("variable-value-input")
+                                )
+                                ui.button(
+                                    icon="delete",
+                                    color=None,
+                                    on_click=lambda _e, row_index=index: _delete_row(row_index),
+                                ).props('flat dense round aria-label="Delete variable row"').classes(
+                                    "icon-tool"
+                                ).tooltip(
+                                    "Delete this variable row"
+                                )
         _update_count_label()
 
     def _add_row() -> None:
@@ -183,3 +194,54 @@ async def open_project_variables_dialog(
     accepted = await dialog
     trace_event("ui.variables.closed", project=project.project_path, accepted=bool(accepted))
     return bool(accepted)
+
+
+@dataclass(frozen=True)
+class _VariableGroup:
+    path: str
+    label: str
+    rows: list[tuple[int, _VariableRowState]]
+
+
+def _group_rows_by_yaml_parent(rows: list[_VariableRowState]) -> list[_VariableGroup]:
+    groups: list[_VariableGroup] = []
+    group_by_path: dict[str, _VariableGroup] = {}
+    for index, row in enumerate(rows):
+        path = _yaml_parent_path(row.key)
+        group = group_by_path.get(path)
+        if group is None:
+            group = _VariableGroup(path=path, label=_yaml_parent_label(path), rows=[])
+            group_by_path[path] = group
+            groups.append(group)
+        group.rows.append((index, row))
+    return groups
+
+
+def _yaml_parent_path(key: str) -> str:
+    parts = [part for part in key.strip().split(".") if part]
+    if len(parts) <= 2:
+        return "narrative"
+    return ".".join(parts[:-1])
+
+
+def _yaml_parent_label(path: str) -> str:
+    parts = path.split(".")
+    if parts and parts[0] == "narrative":
+        parts = parts[1:]
+    if not parts:
+        return "Narrative"
+    return " / ".join(_humanize_path_part(part) for part in parts)
+
+
+def _humanize_path_part(value: str) -> str:
+    abbreviations = {
+        "ach": "ACH",
+        "ashrae": "ASHRAE",
+        "co2": "CO2",
+        "erv": "ERV",
+        "ph": "PH",
+        "phi": "PHI",
+        "phius": "Phius",
+    }
+    words = value.split("_")
+    return " ".join(abbreviations.get(word.lower(), word.capitalize()) for word in words)
