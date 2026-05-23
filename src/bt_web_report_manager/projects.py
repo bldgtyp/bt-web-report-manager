@@ -15,7 +15,6 @@ import yaml
 from bt_web_report_manager.git_status import read_git_status
 from bt_web_report_manager.locks import read_lock
 from bt_web_report_manager.models import GitStatus, ManagerSettings, ProjectMetadata, ProjectStatus
-from bt_web_report_manager.platform_yaml import read_platform_info
 from bt_web_report_manager.trace import trace_event, trace_exception
 
 
@@ -84,7 +83,6 @@ def read_project_status(project_path: Path, settings: ManagerSettings) -> Projec
 
     git = read_git_status(project_path, settings.git_executable)
     lock = read_lock(project_path)
-    platform = read_platform_info(project_path)
     status = ProjectStatus(
         project_path=project_path,
         metadata=metadata,
@@ -94,7 +92,6 @@ def read_project_status(project_path: Path, settings: ManagerSettings) -> Projec
         manifest_generated_at=manifest_generated_at,
         phpp_modified_at=phpp_modified_at,
         warnings=tuple(warnings),
-        platform=platform,
     )
     status_with_badges = _with_badges(status, now=datetime.now(timezone.utc).astimezone())
     trace_event(
@@ -266,9 +263,6 @@ def _with_badges(status: ProjectStatus, now: datetime | None = None) -> ProjectS
         badges.append(_lock_badge(status.lock, current_time))
     if status.warnings:
         badges.append("Warnings")
-    renderer_badge = _renderer_badge(status, current_time)
-    if renderer_badge is not None:
-        badges.append(renderer_badge)
     return ProjectStatus(
         project_path=status.project_path,
         metadata=status.metadata,
@@ -279,7 +273,6 @@ def _with_badges(status: ProjectStatus, now: datetime | None = None) -> ProjectS
         phpp_modified_at=status.phpp_modified_at,
         warnings=status.warnings,
         badges=tuple(badges),
-        platform=status.platform,
     )
 
 
@@ -310,22 +303,3 @@ def _lock_badge(lock: object, now: datetime) -> str:
         return "Locked by you"
     owner = lock.user or "unknown"
     return f"Locked by {owner}"
-
-
-def _renderer_badge(status: ProjectStatus, now: datetime) -> str | None:
-    """Format the per-row renderer-seed-ref badge.
-
-    Returns ``None`` (no badge) for projects with no platform.yaml — they
-    pre-date the vendored seed and are about to be re-created from scratch.
-    """
-
-    from bt_web_report_manager.platform_yaml import short_ref
-
-    if status.platform is None or not status.platform.is_vendored:
-        return None
-    ref = short_ref(status.platform.renderer_seed_ref)
-    if status.platform.seeded_at is None:
-        return f"Renderer @ {ref}"
-    age_days = (now - status.platform.seeded_at).days
-    stale_marker = " (stale)" if age_days >= 90 else ""
-    return f"Renderer @ {ref} · {age_days}d{stale_marker}"

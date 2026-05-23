@@ -24,9 +24,6 @@ class ManagerSettings:
     hidden_project_paths: tuple[Path, ...] = ()
     btwr_executable: str = "btwr"
     pnpm_executable: str = "pnpm"
-    # Renderer (template) source is only consulted at SEED time — by `btwr new`
-    # and `btwr re-seed`. Once a project has been seeded, its own vendored
-    # src/, tina/, scripts/ replace this entirely at preview/build/editor time.
     renderer_source: Path | None = None
     git_executable: str = "git"
     gh_executable: str = "gh"
@@ -76,27 +73,6 @@ class LockInfo:
 
 
 @dataclass(frozen=True)
-class PlatformInfo:
-    """Contents of ``<project>/.bldgtyp/platform.yaml`` if present.
-
-    Stamped by ``btwr new`` at seed time and updated by ``btwr re-seed``.
-    Projects from before the vendored model have no platform.yaml — the
-    Manager UI degrades to "unknown" badges in that case.
-    """
-
-    renderer_seed_ref: str | None = None
-    schemas_pin: str | None = None
-    cli_version: str | None = None
-    seeded_at: datetime | None = None
-
-    @property
-    def is_vendored(self) -> bool:
-        """True if any provenance was recorded — i.e. this is a Phase-3 seed."""
-
-        return self.renderer_seed_ref is not None
-
-
-@dataclass(frozen=True)
 class ProjectStatus:
     project_path: Path
     metadata: ProjectMetadata
@@ -107,7 +83,6 @@ class ProjectStatus:
     phpp_modified_at: datetime | None = None
     warnings: tuple[str, ...] = ()
     badges: tuple[str, ...] = field(default_factory=tuple)
-    platform: PlatformInfo | None = None
 
     @property
     def needs_scrape(self) -> bool:

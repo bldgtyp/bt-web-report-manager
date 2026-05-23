@@ -49,6 +49,8 @@ def test_action_command_specs(tmp_path: Path) -> None:
         str(tmp_path),
         "--pnpm",
         "pnpm-dev",
+        "--renderer-source",
+        str(renderer),
     )
     assert dev_preview_command(project, settings).long_running
     assert open_editor_command(project, settings).args == (
@@ -57,6 +59,8 @@ def test_action_command_specs(tmp_path: Path) -> None:
         str(tmp_path),
         "--pnpm",
         "pnpm-dev",
+        "--renderer-source",
+        str(renderer),
     )
     assert open_editor_command(project, settings).cwd == tmp_path
     assert open_editor_command(project, settings).long_running
