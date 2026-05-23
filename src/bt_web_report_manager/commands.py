@@ -255,9 +255,9 @@ def commit_push_command(project: ProjectStatus, settings: ManagerSettings, messa
     script = (
         f"{_git_fetch_rebase_active_branch_script(quoted_git)} "
         f"&& "
-        f"{quoted_git} add -A -- . ':!.bldgtyp/lock.yaml' "
+        f"{quoted_git} add -A -- . "
         f"&& if {quoted_git} diff --cached --quiet; then "
-        f"echo 'No project changes to commit after excluding .bldgtyp/lock.yaml.'; "
+        f"echo 'No project changes to commit.'; "
         f"else {quoted_git} commit -m {quoted_message}; fi "
         f"&& {quoted_git} push -u origin HEAD:\"$branch\""
     )

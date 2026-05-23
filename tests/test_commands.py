@@ -74,7 +74,7 @@ def test_action_command_specs(tmp_path: Path) -> None:
     assert commit.args[0:2] == ("/bin/sh", "-lc")
     assert "remote get-url origin" in commit.args[2]
     assert "rebase --autostash" in commit.args[2]
-    assert " add -A -- . ':!.bldgtyp/lock.yaml'" in commit.args[2]
+    assert " add -A -- ." in commit.args[2]
     assert "git diff --cached --quiet" in commit.args[2]
     assert "git commit -m 'Update report'" in commit.args[2]
     assert "git push -u origin HEAD" in commit.args[2]
@@ -90,8 +90,9 @@ def test_commit_push_command_pushes_without_committing_lock_file(tmp_path: Path)
     run_command(["git", "config", "user.name", "Test User"], cwd=project_path)
     run_command(["git", "branch", "-M", "main"], cwd=project_path)
     run_command(["git", "remote", "add", "origin", str(remote)], cwd=project_path)
+    (project_path / ".gitignore").write_text(".bldgtyp/lock.yaml\n")
     (project_path / "README.md").write_text("initial\n")
-    run_command(["git", "add", "README.md"], cwd=project_path)
+    run_command(["git", "add", ".gitignore", "README.md"], cwd=project_path)
     run_command(["git", "commit", "-m", "Initial"], cwd=project_path)
     run_command(["git", "push", "-u", "origin", "main"], cwd=project_path)
 
@@ -125,8 +126,9 @@ def test_commit_push_command_succeeds_when_only_lock_file_is_dirty(tmp_path: Pat
     run_command(["git", "config", "user.name", "Test User"], cwd=project_path)
     run_command(["git", "branch", "-M", "main"], cwd=project_path)
     run_command(["git", "remote", "add", "origin", str(remote)], cwd=project_path)
+    (project_path / ".gitignore").write_text(".bldgtyp/lock.yaml\n")
     (project_path / "README.md").write_text("initial\n")
-    run_command(["git", "add", "README.md"], cwd=project_path)
+    run_command(["git", "add", ".gitignore", "README.md"], cwd=project_path)
     run_command(["git", "commit", "-m", "Initial"], cwd=project_path)
     run_command(["git", "push", "-u", "origin", "main"], cwd=project_path)
     initial_head = run_command(["git", "rev-parse", "HEAD"], cwd=project_path).stdout.strip()
@@ -181,8 +183,9 @@ def test_commit_push_command_rebases_existing_ahead_commit_before_push(tmp_path:
     run_command(["git", "config", "user.name", "Test User"], cwd=project_path)
     run_command(["git", "branch", "-M", "main"], cwd=project_path)
     run_command(["git", "remote", "add", "origin", str(remote)], cwd=project_path)
+    (project_path / ".gitignore").write_text(".bldgtyp/lock.yaml\n")
     (project_path / "README.md").write_text("initial\n")
-    run_command(["git", "add", "README.md"], cwd=project_path)
+    run_command(["git", "add", ".gitignore", "README.md"], cwd=project_path)
     run_command(["git", "commit", "-m", "Initial"], cwd=project_path)
     run_command(["git", "push", "-u", "origin", "main"], cwd=project_path)
 
