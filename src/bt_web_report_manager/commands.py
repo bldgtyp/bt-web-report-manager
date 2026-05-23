@@ -282,25 +282,27 @@ def _git_fetch_rebase_active_branch_script(quoted_git: str) -> str:
     )
 
 
-def sync_per_project_workflows_command(settings: ManagerSettings) -> CommandSpec | None:
-    """Run scripts/sync-per-project-workflows.sh in the bt-web-report-template
-    repo. Iterates every repo in the bldgtyp-projects org and force-syncs
-    ci.yml / deploy.yml to the canonical reusable-workflow form, plus copies
-    any template-required content files the per-project doesn't have.
+SYNC_PER_PROJECT_DEPRECATION_MESSAGE = (
+    "Bulk per-project workflow sync has been removed.\n\n"
+    "Per-project repos are no longer mass-rewritten from the template's main "
+    "branch — that mechanism allowed any template push to cascade into a "
+    "redeploy of every live project (see context/plans/2026-05-23/"
+    "renderer-deploy-architecture-restructure-plan.html).\n\n"
+    "Replacements:\n"
+    "  • Phase 1: `btwr pin <project> --renderer <sha> --schemas <sha>`\n"
+    "      Rewrites a single project's workflows to explicit SHAs.\n"
+    "  • Phase 5 (in progress): `btwr re-seed <project> --from <sha>`\n"
+    "      Updates a project's vendored renderer to a new template ref."
+)
 
-    Returns None if the renderer source is not configured or the script is
-    missing — the caller should surface a friendly error.
+
+def sync_per_project_workflows_command(settings: ManagerSettings) -> CommandSpec | None:
+    """Deprecated. Returns None; callers must surface the deprecation message.
+
+    The previous implementation pushed force-rewritten workflows to every repo
+    in ``bldgtyp-projects`` from a single bulk action. That coupling is what
+    Option C's cascade-stop fixes; see ``SYNC_PER_PROJECT_DEPRECATION_MESSAGE``
+    for the replacement workflow.
     """
 
-    if settings.renderer_source is None:
-        return None
-    script = settings.renderer_source / "scripts" / "sync-per-project-workflows.sh"
-    if not script.exists():
-        return None
-    return CommandSpec(
-        name="Update per-project workflows",
-        args=("/bin/bash", str(script)),
-        cwd=settings.renderer_source,
-        long_running=True,
-        refresh_on_success=False,
-    )
+    return None

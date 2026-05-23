@@ -20,6 +20,7 @@ import pyperclip  # type: ignore[import-untyped]
 
 from bt_web_report_manager import __version__
 from bt_web_report_manager.commands import (
+    SYNC_PER_PROJECT_DEPRECATION_MESSAGE,
     CommandSpec,
     commit_push_command,
     dev_preview_command,
@@ -28,7 +29,6 @@ from bt_web_report_manager.commands import (
     pull_rebase_command,
     reveal_command,
     scrape_command,
-    sync_per_project_workflows_command,
 )
 from bt_web_report_manager.deletion import (
     ProjectDeleteError,
@@ -1031,40 +1031,13 @@ def build_page(state: ManagerState) -> None:
         await run_update_check(state.settings, log_message)
 
     async def on_sync_per_project_workflows() -> None:
-        trace_event("ui.toolbar.sync_per_project_workflows.clicked")
-        if runner.is_running:
-            log_message("Update per-project workflows is unavailable while another command is running.")
-            ui.notify("Stop the running command first.", type="warning")
-            return
-        spec = sync_per_project_workflows_command(state.settings)
-        if spec is None:
-            log_message(
-                "Update per-project workflows: renderer source is not configured or "
-                "scripts/sync-per-project-workflows.sh is missing. Set the renderer "
-                "source in Settings."
-            )
-            ui.notify(
-                "Renderer source not configured. Set it in Settings to enable this action.",
-                type="warning",
-            )
-            return
-        ok = await confirm_dialog(
-            title="Update per-project workflows",
-            message=(
-                "This pushes commits to every repo in bldgtyp-projects, replacing "
-                "ci.yml / deploy.yml with the canonical reusable-workflow form and "
-                "adding any missing template-required content files (existing files "
-                "are never overwritten). Repos already in the canonical state are "
-                "left alone.\n\n"
-                "Output streams to the log below."
-            ),
-            confirm_label="Run sync",
+        trace_event("ui.toolbar.sync_per_project_workflows.deprecated_clicked")
+        log_message(SYNC_PER_PROJECT_DEPRECATION_MESSAGE)
+        await confirm_dialog(
+            title="Bulk workflow sync removed",
+            message=SYNC_PER_PROJECT_DEPRECATION_MESSAGE,
+            confirm_label="OK",
         )
-        if not ok:
-            trace_event("ui.toolbar.sync_per_project_workflows.cancelled")
-            log_message("Update per-project workflows canceled.")
-            return
-        await _start_command(spec)
 
     async def delete_project(project: ProjectStatus) -> None:
         trace_event("ui.project.delete.clicked", project=project.project_path, slug=project.metadata.slug)
