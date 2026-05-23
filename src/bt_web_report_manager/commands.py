@@ -187,18 +187,19 @@ def scrape_command(project: ProjectStatus, settings: ManagerSettings) -> Command
 
 
 def dev_preview_command(project: ProjectStatus, settings: ManagerSettings) -> CommandSpec:
-    args = [
+    # The vendored project IS the runtime; --renderer-source is no longer
+    # passed to preview/editor/build. settings.renderer_source is still
+    # required for `btwr new` and `btwr re-seed`.
+    args = (
         command_executable(settings.btwr_executable),
         "preview",
         str(project.project_path),
         "--pnpm",
         command_executable(settings.pnpm_executable),
-    ]
-    if settings.renderer_source is not None:
-        args.extend(["--renderer-source", str(settings.renderer_source)])
+    )
     return CommandSpec(
         name="Dev preview",
-        args=tuple(args),
+        args=args,
         cwd=project.project_path,
         long_running=True,
     )
@@ -213,18 +214,19 @@ def reveal_command(project: ProjectStatus) -> CommandSpec:
 
 
 def open_editor_command(project: ProjectStatus, settings: ManagerSettings) -> CommandSpec:
-    args = [
+    # The vendored project IS the runtime; --renderer-source no longer
+    # passed to editor. settings.renderer_source is still required for
+    # `btwr new` and `btwr re-seed`.
+    args = (
         command_executable(settings.btwr_executable),
         "editor",
         str(project.project_path),
         "--pnpm",
         command_executable(settings.pnpm_executable),
-    ]
-    if settings.renderer_source is not None:
-        args.extend(["--renderer-source", str(settings.renderer_source)])
+    )
     return CommandSpec(
         name="Open editor",
-        args=tuple(args),
+        args=args,
         cwd=project.project_path,
         long_running=True,
         refresh_on_success=False,
