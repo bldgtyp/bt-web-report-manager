@@ -5,7 +5,7 @@ a = Analysis(
     ['src/bt_web_report_manager/__main__.py'],
     pathex=[],
     binaries=[],
-    datas=[('/Users/em/Dropbox/bldgtyp-00/00_PH_Tools/bt-web-report/bt-web-report-manager/.venv/lib/python3.13/site-packages/nicegui', 'nicegui')],
+    datas=[('/Users/em/Dropbox/bldgtyp-00/00_PH_Tools/bldgtyp/bt-web-report/bt-web-report-manager/.venv/lib/python3.13/site-packages/nicegui', 'nicegui')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

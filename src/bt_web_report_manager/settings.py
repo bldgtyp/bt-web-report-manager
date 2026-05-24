@@ -13,6 +13,7 @@ from bt_web_report_manager.models import ManagerSettings, ToolStatus
 from bt_web_report_manager.trace import trace_event
 
 APP_SUPPORT_ENV = "BTWR_MANAGER_APP_SUPPORT"
+WORKSPACE_ROOT_FALLBACK = Path("~/Dropbox/bldgtyp-00/00_PH_Tools/bldgtyp/bt-web-report").expanduser()
 
 
 def app_support_dir() -> Path:
@@ -178,7 +179,7 @@ def _default_btwr_executable() -> str:
 
 
 def workspace_btwr_executable() -> str | None:
-    for workspace_root in _workspace_root_candidates():
+    for workspace_root in workspace_root_candidates():
         workspace_candidate = workspace_root / ".venv" / "bin" / "btwr"
         trace_event(
             "settings.workspace_btwr.candidate",
@@ -193,8 +194,5 @@ def workspace_btwr_executable() -> str | None:
     return None
 
 
-def _workspace_root_candidates() -> tuple[Path, ...]:
-    return (
-        Path(__file__).resolve().parents[3],
-        Path("~/Dropbox/bldgtyp-00/00_PH_Tools/bt-web-report").expanduser(),
-    )
+def workspace_root_candidates() -> tuple[Path, ...]:
+    return tuple(dict.fromkeys((Path(__file__).resolve().parents[3], WORKSPACE_ROOT_FALLBACK)))

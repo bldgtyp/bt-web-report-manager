@@ -11,7 +11,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from bt_web_report_manager.models import ManagerSettings, ProjectStatus, ToolStatus
-from bt_web_report_manager.settings import app_support_dir, settings_write_status, workspace_btwr_executable
+from bt_web_report_manager.settings import (
+    app_support_dir,
+    settings_write_status,
+    workspace_btwr_executable,
+    workspace_root_candidates,
+)
 from bt_web_report_manager.trace import trace_event, trace_exception
 
 EXTRA_EXECUTABLE_DIRS = (
@@ -23,11 +28,6 @@ EXTRA_EXECUTABLE_DIRS = (
     "/sbin",
     "/Applications/Visual Studio Code.app/Contents/Resources/app/bin",
 )
-
-WORKSPACE_RENDERER_BIN_DIRS = (
-    Path("~/Dropbox/bldgtyp-00/00_PH_Tools/bt-web-report/bt-web-report-template/node_modules/.bin").expanduser(),
-)
-
 
 @dataclass(frozen=True)
 class CommandSpec:
@@ -68,7 +68,11 @@ def executable_search_paths() -> tuple[str, ...]:
 def renderer_bin_dirs() -> tuple[Path, ...]:
     """Return Node executable folders owned by the shared renderer runtime."""
     app_support_renderer_bin = app_support_dir() / "renderer" / "current" / "node_modules" / ".bin"
-    return (app_support_renderer_bin, *WORKSPACE_RENDERER_BIN_DIRS)
+    workspace_bins = tuple(
+        workspace_root / "bt-web-report-template" / "node_modules" / ".bin"
+        for workspace_root in workspace_root_candidates()
+    )
+    return tuple(dict.fromkeys((app_support_renderer_bin, *workspace_bins)))
 
 
 def node_toolchain_bin_dirs() -> tuple[Path, ...]:

@@ -10,7 +10,7 @@ from typing import Any
 
 import yaml
 
-from bt_web_report_manager.settings import app_support_dir
+from bt_web_report_manager.settings import app_support_dir, workspace_root_candidates
 from bt_web_report_manager.trace import trace_event
 
 VARIABLE_ROOT = "narrative"
@@ -138,22 +138,19 @@ def _project_schema_json_candidates() -> tuple[Path, ...]:
     env_path = os.environ.get(PROJECT_SCHEMA_JSON_ENV)
     if env_path:
         candidates.append(Path(env_path).expanduser())
-    workspace_root = Path(__file__).resolve().parents[3]
     candidates.extend(
-        [
-            workspace_root / "bt-web-report-schemas" / "schemas" / "project.schema.json",
-            app_support_dir()
-            / "renderer"
-            / "current"
-            / "node_modules"
-            / "@bldgtyp"
-            / "web-report-schemas"
-            / "schemas"
-            / "project.schema.json",
-            Path(
-                "~/Dropbox/bldgtyp-00/00_PH_Tools/bt-web-report/bt-web-report-schemas/schemas/project.schema.json"
-            ).expanduser(),
-        ]
+        workspace_root / "bt-web-report-schemas" / "schemas" / "project.schema.json"
+        for workspace_root in workspace_root_candidates()
+    )
+    candidates.append(
+        app_support_dir()
+        / "renderer"
+        / "current"
+        / "node_modules"
+        / "@bldgtyp"
+        / "web-report-schemas"
+        / "schemas"
+        / "project.schema.json"
     )
     return tuple(dict.fromkeys(candidates))
 
@@ -227,14 +224,11 @@ def _template_project_yaml_candidates() -> tuple[Path, ...]:
     env_path = os.environ.get(TEMPLATE_PROJECT_YAML_ENV)
     if env_path:
         candidates.append(Path(env_path).expanduser())
-    workspace_root = Path(__file__).resolve().parents[3]
     candidates.extend(
-        [
-            workspace_root / "bt-web-report-template" / "project.yaml",
-            app_support_dir() / "renderer" / "current" / "project.yaml",
-            Path("~/Dropbox/bldgtyp-00/00_PH_Tools/bt-web-report/bt-web-report-template/project.yaml").expanduser(),
-        ]
+        workspace_root / "bt-web-report-template" / "project.yaml"
+        for workspace_root in workspace_root_candidates()
     )
+    candidates.append(app_support_dir() / "renderer" / "current" / "project.yaml")
     return tuple(dict.fromkeys(candidates))
 
 
