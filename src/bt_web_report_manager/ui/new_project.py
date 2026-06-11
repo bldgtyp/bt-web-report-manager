@@ -141,9 +141,27 @@ async def open_new_project_wizard(
                 _set_field(name, cleaned)
             return cleaned
 
-        def _sync_derived_names() -> None:
-            number = sanitize_project_number(info_fields["project_number"].value or "")
-            name = sanitize_slug(info_fields["project_name"].value or "")
+        def _sync_derived_names(
+            *,
+            project_number_override: str | None = None,
+            project_name_override: str | None = None,
+        ) -> None:
+            # During update:model-value, NiceGUI hasn't yet written the just-typed
+            # character into info_fields[...].value, so reading .value lags by one
+            # keystroke. Callers in the keystroke path pass the event's payload via
+            # the *_override args so derived previews reflect the up-to-date input.
+            raw_number = (
+                project_number_override
+                if project_number_override is not None
+                else (info_fields["project_number"].value or "")
+            )
+            raw_name = (
+                project_name_override
+                if project_name_override is not None
+                else (info_fields["project_name"].value or "")
+            )
+            number = sanitize_project_number(raw_number)
+            name = sanitize_slug(raw_name)
             trace_event(
                 "ui.new_project.sync_derived_names",
                 project_number=number,
@@ -322,29 +340,51 @@ async def open_new_project_wizard(
                             .tooltip("Derived Cloudflare Pages URL. HTTPS is required by the renderer schema.")
                         )
 
-                    def _on_project_number_change() -> None:
+                    def _event_value(args: Any) -> str:
+                        # Quasar's q-input emits update:model-value with the new value as
+                        # the first positional arg. NiceGUI surfaces it via e.args (str |
+                        # list[str] depending on event); coerce to a plain string.
+                        if isinstance(args, str):
+                            return args
+                        if isinstance(args, list) and args and isinstance(args[0], str):
+                            return args[0]
+                        return ""
+
+                    def _on_project_number_change(new_value: str) -> None:
                         if not programmatic_update["active"]:
                             trace_event(
                                 "ui.new_project.project_number.user_changed",
-                                value=info_fields["project_number"].value or "",
+                                value=new_value,
                             )
                             auto_fields["number"] = False
-                        number = sanitize_project_number(info_fields["project_number"].value or "")
-                        if number != (info_fields["project_number"].value or ""):
+                        number = sanitize_project_number(new_value)
+                        if number != new_value:
                             _set_field("project_number", number)
-                        _sync_derived_names()
+                        _sync_derived_names(project_number_override=number)
 
-                    def _on_project_name_change() -> None:
+                    def _on_project_name_change(new_value: str) -> None:
                         if not programmatic_update["active"]:
                             trace_event(
                                 "ui.new_project.project_name.user_changed",
-                                value=info_fields["project_name"].value or "",
+                                value=new_value,
                             )
                             auto_fields["name"] = False
+                        # Sanitization is deferred to blur so the input doesn't fight the user
+                        # mid-type (writing back a cleaned value races with the next keystroke).
+                        # Pass the just-typed value through so repo_name / production_url
+                        # previews reflect the latest keystroke, not the lagging .value.
+                        _sync_derived_names(project_name_override=new_value)
+
+                    def _on_project_name_blur() -> None:
                         name = sanitize_slug(info_fields["project_name"].value or "")
                         if name != (info_fields["project_name"].value or ""):
+                            trace_event(
+                                "ui.new_project.project_name.sanitized_on_blur",
+                                old_value=info_fields["project_name"].value or "",
+                                new_value=name,
+                            )
                             _set_field("project_name", name)
-                        _sync_derived_names()
+                            _sync_derived_names()
 
                     def _on_local_folder_change() -> None:
                         if not programmatic_update["active"]:
@@ -359,8 +399,13 @@ async def open_new_project_wizard(
                             trace_event("ui.new_project.auto_field.disabled", field=name)
                             auto_fields[name] = False
 
-                    info_fields["project_number"].on("update:model-value", lambda _e: _on_project_number_change())
-                    info_fields["project_name"].on("update:model-value", lambda _e: _on_project_name_change())
+                    info_fields["project_number"].on(
+                        "update:model-value", lambda e: _on_project_number_change(_event_value(e.args))
+                    )
+                    info_fields["project_name"].on(
+                        "update:model-value", lambda e: _on_project_name_change(_event_value(e.args))
+                    )
+                    info_fields["project_name"].on("blur", lambda _e: _on_project_name_blur())
                     info_fields["local_folder"].on("update:model-value", lambda _e: _on_local_folder_change())
                     info_fields["target_web_path"].on("update:model-value", lambda _e: _mark_manual("target"))
                     info_fields["phpp_path"].on("update:model-value", lambda _e: _normalize_path_field("phpp_path"))

@@ -20,6 +20,8 @@ from bt_web_report_manager.settings import (
 from bt_web_report_manager.trace import trace_event, trace_exception
 
 EXTRA_EXECUTABLE_DIRS = (
+    str(Path("~/.local/bin").expanduser()),
+    str(Path("~/bin").expanduser()),
     "/opt/homebrew/bin",
     "/usr/local/bin",
     "/usr/bin",
@@ -28,6 +30,39 @@ EXTRA_EXECUTABLE_DIRS = (
     "/sbin",
     "/Applications/Visual Studio Code.app/Contents/Resources/app/bin",
 )
+
+_LOGIN_SHELL_PATH_CACHE: tuple[str, ...] | None = None
+
+
+def login_shell_path_dirs() -> tuple[str, ...]:
+    """Return PATH entries from the user's login shell (cached).
+
+    macOS Finder-launched .app bundles do NOT inherit the user's interactive
+    shell PATH, so things in ``~/.zshrc`` / ``~/.zprofile`` are invisible.
+    We invoke the login shell once at startup to capture its PATH and merge
+    it into ``executable_search_paths()``.
+    """
+    global _LOGIN_SHELL_PATH_CACHE
+    if _LOGIN_SHELL_PATH_CACHE is not None:
+        return _LOGIN_SHELL_PATH_CACHE
+    shell = os.environ.get("SHELL") or "/bin/zsh"
+    try:
+        result = subprocess.run(
+            [shell, "-l", "-i", "-c", 'printf %s "$PATH"'],
+            capture_output=True,
+            text=True,
+            timeout=4,
+            check=False,
+        )
+        raw = (result.stdout or "").strip()
+        dirs = tuple(p for p in raw.split(os.pathsep) if p)
+        trace_event("commands.login_shell_path.captured", shell=shell, dir_count=len(dirs))
+    except (OSError, subprocess.SubprocessError) as exc:
+        trace_event("commands.login_shell_path.failed", shell=shell, error=str(exc))
+        dirs = ()
+    _LOGIN_SHELL_PATH_CACHE = dirs
+    return dirs
+
 
 @dataclass(frozen=True)
 class CommandSpec:
@@ -59,6 +94,7 @@ def executable_search_paths() -> tuple[str, ...]:
     paths.extend(str(path) for path in renderer_bin_dirs())
     paths.extend(str(path) for path in node_toolchain_bin_dirs())
     paths.extend(path for path in os.environ.get("PATH", "").split(os.pathsep) if path)
+    paths.extend(login_shell_path_dirs())
     paths.extend(EXTRA_EXECUTABLE_DIRS)
     unique_paths = tuple(dict.fromkeys(paths))
     trace_event("commands.executable_search_paths", paths=unique_paths)
@@ -263,7 +299,7 @@ def commit_push_command(project: ProjectStatus, settings: ManagerSettings, messa
         f"&& if {quoted_git} diff --cached --quiet; then "
         f"echo 'No project changes to commit.'; "
         f"else {quoted_git} commit -m {quoted_message}; fi "
-        f"&& {quoted_git} push -u origin HEAD:\"$branch\""
+        f'&& {quoted_git} push -u origin HEAD:"$branch"'
     )
     return CommandSpec(
         name="Commit & push",
@@ -277,12 +313,12 @@ def _git_fetch_rebase_active_branch_script(quoted_git: str) -> str:
     return (
         f"{quoted_git} remote get-url origin >/dev/null "
         f"&& branch=$({quoted_git} branch --show-current) "
-        f"&& if [ -z \"$branch\" ]; then "
+        f'&& if [ -z "$branch" ]; then '
         f"echo 'Git sync requires a named branch, not detached HEAD.'; exit 1; fi "
-        f"&& if {quoted_git} ls-remote --exit-code --heads origin \"$branch\" >/dev/null 2>&1; then "
-        f"{quoted_git} fetch origin \"$branch:refs/remotes/origin/$branch\" "
-        f"&& {quoted_git} rebase --autostash \"origin/$branch\"; "
-        f"else echo \"No origin/$branch yet; nothing to pull.\"; fi"
+        f'&& if {quoted_git} ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then '
+        f'{quoted_git} fetch origin "$branch:refs/remotes/origin/$branch" '
+        f'&& {quoted_git} rebase --autostash "origin/$branch"; '
+        f'else echo "No origin/$branch yet; nothing to pull."; fi'
     )
 
 

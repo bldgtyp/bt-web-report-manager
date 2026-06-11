@@ -25,7 +25,7 @@ def system_statuses(settings: ManagerSettings) -> list[ToolStatus]:
         tool_status("pnpm", settings.pnpm_executable),
         tool_status("node", "node"),
         tool_status("wrangler", "wrangler"),
-        tool_status("python", sys.executable),
+        python_status(),
         tool_status("uv", "uv"),
         tool_status("git", settings.git_executable),
         tool_status("gh", settings.gh_executable, ("--version",)),
@@ -53,6 +53,26 @@ def path_status(name: str, path: Path, *, require_dir: bool, writable: bool) -> 
         return ToolStatus(name, str(path), str(resolved), None, False, f"{resolved} is not writable")
     message = "folder exists" if resolved.is_dir() else "path exists"
     return ToolStatus(name, str(path), str(resolved), None, True, message)
+
+
+def python_status() -> ToolStatus:
+    """Report Python without spawning a subprocess.
+
+    ``sys.executable`` is the Manager bundle binary when frozen, so running it
+    with ``--version`` would launch a second GUI instance. Report the in-process
+    interpreter version directly instead.
+    """
+    version = sys.version.split()[0]
+    if getattr(sys, "frozen", False):
+        executable = "embedded"
+        path = sys.executable
+        message = f"Python {version} (embedded)"
+    else:
+        executable = sys.executable
+        path = sys.executable
+        message = f"Python {version}"
+    trace_event("support.python_status", executable=executable, version=version, frozen=getattr(sys, "frozen", False))
+    return ToolStatus("python", executable, path, version, True, message)
 
 
 def renderer_status(path: Path | None) -> ToolStatus:

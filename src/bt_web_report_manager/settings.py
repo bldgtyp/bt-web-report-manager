@@ -13,7 +13,14 @@ from bt_web_report_manager.models import ManagerSettings, ToolStatus
 from bt_web_report_manager.trace import trace_event
 
 APP_SUPPORT_ENV = "BTWR_MANAGER_APP_SUPPORT"
-WORKSPACE_ROOT_FALLBACK = Path("~/Dropbox/bldgtyp-00/00_PH_Tools/bldgtyp/bt-web-report").expanduser()
+WORKSPACE_ROOT_ENV = "BTWR_WORKSPACE_ROOT"
+WORKSPACE_MARKER_TOKEN = "bt-web-report-cli"
+WORKSPACE_SEARCH_HINTS: tuple[Path, ...] = (
+    Path("~/Dropbox/bldgtyp-00/00_PH_Tools/bldgtyp/bt-web-report").expanduser(),
+    Path("~/Dropbox/bldgtyp-00/00_PH_Tools/bt-web-report").expanduser(),
+    Path("~/00_PH_Tools/bldgtyp/bt-web-report").expanduser(),
+    Path("~/bt-web-report").expanduser(),
+)
 
 
 def app_support_dir() -> Path:
@@ -190,9 +197,71 @@ def workspace_btwr_executable() -> str | None:
         if workspace_candidate.exists():
             trace_event("settings.workspace_btwr.found", path=workspace_candidate)
             return str(workspace_candidate)
+    uv_tool_candidate = Path("~/.local/bin/btwr").expanduser()
+    trace_event(
+        "settings.workspace_btwr.uv_tool_candidate",
+        path=uv_tool_candidate,
+        exists=uv_tool_candidate.exists(),
+    )
+    if uv_tool_candidate.exists():
+        trace_event("settings.workspace_btwr.uv_tool_found", path=uv_tool_candidate)
+        return str(uv_tool_candidate)
     trace_event("settings.workspace_btwr.not_found")
     return None
 
 
 def workspace_root_candidates() -> tuple[Path, ...]:
-    return tuple(dict.fromkeys((Path(__file__).resolve().parents[3], WORKSPACE_ROOT_FALLBACK)))
+    """Locate the bt-web-report workspace root via multiple strategies.
+
+    Strategies, in priority order:
+      1. ``BTWR_WORKSPACE_ROOT`` env var (escape hatch).
+      2. Walk-up from this file (works in source checkouts; PyInstaller bundles fail here).
+      3. Walk-up from CWD.
+      4. Walk-up from common Dropbox/PH_Tools hint paths.
+      5. Direct hint paths as a last-resort fallback.
+
+    A "workspace root" is identified by a ``pyproject.toml`` containing the
+    marker token ``bt-web-report-cli`` — survives moves, renames, and
+    Dropbox-path differences across machines.
+    """
+    found: list[Path] = []
+
+    env_root = os.environ.get(WORKSPACE_ROOT_ENV)
+    if env_root:
+        candidate = Path(env_root).expanduser()
+        if _is_workspace_root(candidate):
+            found.append(candidate)
+            trace_event("settings.workspace_root.env", path=candidate)
+
+    for start in (Path(__file__).resolve(), Path.cwd().resolve()):
+        for parent in (start, *start.parents):
+            if _is_workspace_root(parent):
+                found.append(parent)
+                trace_event("settings.workspace_root.walkup", start=start, path=parent)
+                break
+
+    for hint in WORKSPACE_SEARCH_HINTS:
+        if _is_workspace_root(hint):
+            found.append(hint)
+            trace_event("settings.workspace_root.hint", path=hint)
+        elif hint.exists():
+            for parent in (hint, *hint.parents):
+                if _is_workspace_root(parent):
+                    found.append(parent)
+                    trace_event("settings.workspace_root.hint_walkup", start=hint, path=parent)
+                    break
+
+    found.extend(WORKSPACE_SEARCH_HINTS)
+
+    return tuple(dict.fromkeys(found))
+
+
+def _is_workspace_root(path: Path) -> bool:
+    pyproject = path / "pyproject.toml"
+    if not pyproject.is_file():
+        return False
+    try:
+        text = pyproject.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return False
+    return WORKSPACE_MARKER_TOKEN in text

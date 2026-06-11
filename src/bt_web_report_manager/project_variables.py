@@ -225,8 +225,7 @@ def _template_project_yaml_candidates() -> tuple[Path, ...]:
     if env_path:
         candidates.append(Path(env_path).expanduser())
     candidates.extend(
-        workspace_root / "bt-web-report-template" / "project.yaml"
-        for workspace_root in workspace_root_candidates()
+        workspace_root / "bt-web-report-template" / "project.yaml" for workspace_root in workspace_root_candidates()
     )
     candidates.append(app_support_dir() / "renderer" / "current" / "project.yaml")
     return tuple(dict.fromkeys(candidates))

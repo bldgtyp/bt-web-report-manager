@@ -7,12 +7,14 @@ import subprocess
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import pyperclip  # type: ignore[import-untyped]
 from nicegui import ui
 
 from bt_web_report_manager.models import ManagerSettings, ToolStatus
-from bt_web_report_manager.settings import save_settings, workspace_btwr_executable
+from bt_web_report_manager.commands import resolve_executable
+from bt_web_report_manager.settings import save_settings, workspace_btwr_executable, workspace_root_candidates
 from bt_web_report_manager.support import support_summary, system_statuses
 from bt_web_report_manager.trace import trace_event, trace_log_path
 from bt_web_report_manager.ui.state import ManagerState
@@ -343,84 +345,26 @@ async def open_settings_dialog(state: ManagerState, on_save: Callable[[], Awaita
         await on_save()
 
 
+_DOCTOR_DIALOG_OPEN = False
+
+
 async def open_doctor_dialog(state: ManagerState) -> None:
-    """Run setup checks and display results."""
-    trace_event("ui.doctor.open", settings=state.settings, trace_log_path=trace_log_path())
-    dialog = ui.dialog()
+    """Run setup checks and display results.
 
-    statuses: list[ToolStatus] = await asyncio.to_thread(system_statuses, state.settings)
-    workspace_btwr = workspace_btwr_executable()
-    trace_event(
-        "ui.doctor.statuses_loaded",
-        statuses=[
-            {"name": status.name, "ok": status.ok, "path": status.path, "message": status.message}
-            for status in statuses
-        ],
-        workspace_btwr=workspace_btwr,
-    )
-
-    with dialog, ui.card().classes("min-w-[760px] max-w-[920px]"):
-        ui.label("System Check").classes("dialog-title")
-        ui.label("Setup checks. Use the repair action when available, then rerun System Check to confirm.").classes(
-            "dialog-subtitle"
-        )
-        ui.label(f"Trace log: {trace_log_path()}").style(
-            "font-family: var(--font-mono); font-size: 11px; color: var(--text-2); word-break: break-all;"
-        )
-
-        with ui.column().classes("w-full gap-1 mt-2"):
-            ui.element("div").classes("doctor-grid").style(
-                "display: grid; grid-template-columns: 100px 90px 130px 1fr; "
-                "gap: 6px 12px; font-family: var(--font-mono); font-size: 12px;"
-            )
-            with (
-                ui.row()
-                .classes("w-full px-1 py-2 items-center")
-                .style(
-                    "border-bottom: 1px solid var(--border-strong); font-size: 10px; "
-                    "letter-spacing: 0.08em; text-transform: uppercase; "
-                    "color: var(--text-muted); font-weight: 700;"
-                )
-            ):
-                ui.label("Check").style("flex: 0 0 110px;")
-                ui.label("Status").style("flex: 0 0 90px;")
-                ui.label("Executable").style("flex: 0 0 140px;")
-                ui.label("Path / message").style("flex: 1;")
-
-            for status in statuses:
-                chip_class = "chip chip-success" if status.ok else "chip chip-warning"
-                chip_label = "OK" if status.ok else "Warning"
-                with (
-                    ui.row()
-                    .classes("w-full px-1 py-2 items-start")
-                    .style("border-bottom: 1px solid var(--border); font-family: var(--font-mono); font-size: 12px;")
-                ):
-                    ui.label(status.name).style("flex: 0 0 110px; font-weight: 600; color: var(--ink);")
-                    with ui.element("div").style("flex: 0 0 90px;"):
-                        ui.html(f'<span class="{chip_class}">{chip_label}</span>')
-                    ui.label(status.executable).style("flex: 0 0 140px; color: var(--text-2); word-break: break-all;")
-                    with ui.column().classes("gap-1").style("flex: 1; min-width: 0;"):
-                        if status.path:
-                            ui.label(status.path).style("color: var(--text); word-break: break-all;")
-                        ui.label(status.message).style(
-                            "color: var(--text-2); font-family: var(--font-sans); font-size: 12px;"
-                        )
-                        if _can_repair_btwr(status, workspace_btwr):
-                            repair_path = workspace_btwr or ""
-                            ui.label(f"Suggested path: {repair_path}").style(
-                                "color: var(--text); font-family: var(--font-mono); font-size: 11px; word-break: break-all;"
-                            )
-
-                            def _repair_btwr(path: str = repair_path) -> None:
-                                trace_event("ui.doctor.repair_btwr.clicked", path=path)
-                                state.settings = replace(state.settings, btwr_executable=path)
-                                save_settings(state.settings)
-                                ui.notify("Saved workspace btwr path. Rerun System Check to confirm.", type="positive")
-                                dialog.close()
-
-                            ui.button("Use workspace btwr", on_click=_repair_btwr, color=None).props(
-                                "flat unelevated no-caps"
-                            ).classes("action-btn is-warning").style("align-self: flex-start; margin-top: 4px;")
+    Renders the dialog skeleton + a spinner immediately so the user sees
+    something the moment they click, then loads statuses in a worker thread
+    and replaces the spinner with the real grid. Re-entry is guarded by
+    ``_DOCTOR_DIALOG_OPEN`` so double-clicks don't stack dialogs.
+    """
+    global _DOCTOR_DIALOG_OPEN
+    if _DOCTOR_DIALOG_OPEN:
+        trace_event("ui.doctor.open.reentry_blocked")
+        return
+    _DOCTOR_DIALOG_OPEN = True
+    try:
+        trace_event("ui.doctor.open", settings=state.settings, trace_log_path=trace_log_path())
+        dialog = ui.dialog()
+        loaded: dict[str, Any] = {"statuses": [], "workspace_btwr": None}
 
         async def _open_setup_guide() -> None:
             trace_event("ui.doctor.setup_guide.clicked")
@@ -432,7 +376,7 @@ async def open_doctor_dialog(state: ManagerState) -> None:
             _copy_to_clipboard(path, success="Trace log path copied.")
 
         def _copy_support_summary() -> None:
-            text = support_summary(state.settings, statuses)
+            text = support_summary(state.settings, loaded["statuses"])
             trace_event("ui.doctor.copy_support_summary.clicked", line_count=len(text.splitlines()))
             _copy_to_clipboard(text, success="Support summary copied.")
 
@@ -460,40 +404,208 @@ async def open_doctor_dialog(state: ManagerState) -> None:
             trace_event("ui.doctor.close.clicked")
             dialog.close()
 
-        with ui.row().classes("w-full justify-between mt-3"):
-            ui.button(
-                "Setup guide",
-                on_click=_open_setup_guide,
-                color=None,
-            ).props(
-                "flat unelevated no-caps"
-            ).classes("action-btn")
-            with ui.row().classes("items-center gap-2"):
-                ui.button("Copy summary", on_click=_copy_support_summary, color=None).props(
-                    "flat unelevated no-caps"
-                ).classes("action-btn")
-                ui.button("Copy latest trace", on_click=_copy_latest_trace, color=None).props(
-                    "flat unelevated no-caps"
-                ).classes("action-btn")
-                ui.button("Copy trace path", on_click=_copy_trace_path, color=None).props(
-                    "flat unelevated no-caps"
-                ).classes("action-btn")
-                ui.button("Reveal trace", on_click=_reveal_trace, color=None).props("flat unelevated no-caps").classes(
-                    "action-btn"
+        def _render_body(target: Any, statuses: list[ToolStatus], workspace_btwr: str | None) -> None:
+            with target, ui.column().classes("w-full gap-1 mt-2"):
+                ui.element("div").classes("doctor-grid").style(
+                    "display: grid; grid-template-columns: 100px 90px 130px 1fr; "
+                    "gap: 6px 12px; font-family: var(--font-mono); font-size: 12px;"
                 )
+                with (
+                    ui.row()
+                    .classes("w-full px-1 py-2 items-center")
+                    .style(
+                        "border-bottom: 1px solid var(--border-strong); font-size: 10px; "
+                        "letter-spacing: 0.08em; text-transform: uppercase; "
+                        "color: var(--text-muted); font-weight: 700;"
+                    )
+                ):
+                    ui.label("Check").style("flex: 0 0 110px;")
+                    ui.label("Status").style("flex: 0 0 90px;")
+                    ui.label("Executable").style("flex: 0 0 140px;")
+                    ui.label("Path / message").style("flex: 1;")
+
+                for status in statuses:
+                    chip_class = "chip chip-success" if status.ok else "chip chip-warning"
+                    chip_label = "OK" if status.ok else "Warning"
+                    with (
+                        ui.row()
+                        .classes("w-full px-1 py-2 items-start")
+                        .style(
+                            "border-bottom: 1px solid var(--border); font-family: var(--font-mono); font-size: 12px;"
+                        )
+                    ):
+                        ui.label(status.name).style("flex: 0 0 110px; font-weight: 600; color: var(--ink);")
+                        with ui.element("div").style("flex: 0 0 90px;"):
+                            ui.html(f'<span class="{chip_class}">{chip_label}</span>')
+                        ui.label(status.executable).style(
+                            "flex: 0 0 140px; color: var(--text-2); word-break: break-all;"
+                        )
+                        with ui.column().classes("gap-1").style("flex: 1; min-width: 0;"):
+                            if status.path:
+                                ui.label(status.path).style("color: var(--text); word-break: break-all;")
+                            ui.label(status.message).style(
+                                "color: var(--text-2); font-family: var(--font-sans); font-size: 12px;"
+                            )
+                            if _can_repair_btwr(status, workspace_btwr):
+                                repair_path = workspace_btwr or ""
+                                ui.label(f"Suggested path: {repair_path}").style(
+                                    "color: var(--text); font-family: var(--font-mono); "
+                                    "font-size: 11px; word-break: break-all;"
+                                )
+
+                                def _repair_btwr(path: str = repair_path) -> None:
+                                    trace_event("ui.doctor.repair_btwr.clicked", path=path)
+                                    state.settings = replace(state.settings, btwr_executable=path)
+                                    save_settings(state.settings)
+                                    ui.notify(
+                                        "Saved workspace btwr path. Rerun System Check to confirm.",
+                                        type="positive",
+                                    )
+                                    dialog.close()
+
+                                ui.button("Use workspace btwr", on_click=_repair_btwr, color=None).props(
+                                    "flat unelevated no-caps"
+                                ).classes("action-btn is-warning").style("align-self: flex-start; margin-top: 4px;")
+                            if status.name == "btwr" and not status.ok:
+                                cli_source = _cli_source_for_uv_install()
+                                if cli_source is not None:
+
+                                    async def _install_btwr_uv(source: Path = cli_source) -> None:
+                                        await _install_btwr_via_uv(state, dialog, source)
+
+                                    ui.label(
+                                        "Or install persistently: runs `uv tool install` so btwr lives in ~/.local/bin."
+                                    ).style("color: var(--text-2); font-size: 11px; margin-top: 4px;")
+                                    ui.button(
+                                        "Install btwr via uv",
+                                        on_click=_install_btwr_uv,
+                                        color=None,
+                                    ).props(
+                                        "flat unelevated no-caps"
+                                    ).classes("action-btn is-primary").style("align-self: flex-start; margin-top: 4px;")
+
+        with dialog, ui.card().classes("min-w-[760px] max-w-[920px]"):
+            ui.label("System Check").classes("dialog-title")
+            ui.label("Setup checks. Use the repair action when available, then rerun System Check to confirm.").classes(
+                "dialog-subtitle"
+            )
+            ui.label(f"Trace log: {trace_log_path()}").style(
+                "font-family: var(--font-mono); font-size: 11px; color: var(--text-2); word-break: break-all;"
+            )
+            body = ui.column().classes("w-full")
+            with body, ui.row().classes("w-full items-center justify-center gap-3 py-8"):
+                ui.spinner(size="lg")
+                ui.label("Running setup checks...").style(
+                    "color: var(--text-2); font-family: var(--font-sans); font-size: 13px;"
+                )
+
+            with ui.row().classes("w-full justify-between mt-3"):
                 ui.button(
-                    "Close",
-                    on_click=_close_doctor,
+                    "Setup guide",
+                    on_click=_open_setup_guide,
                     color=None,
                 ).props(
                     "flat unelevated no-caps"
-                ).classes("action-btn is-primary")
+                ).classes("action-btn")
+                with ui.row().classes("items-center gap-2"):
+                    ui.button("Copy summary", on_click=_copy_support_summary, color=None).props(
+                        "flat unelevated no-caps"
+                    ).classes("action-btn")
+                    ui.button("Copy latest trace", on_click=_copy_latest_trace, color=None).props(
+                        "flat unelevated no-caps"
+                    ).classes("action-btn")
+                    ui.button("Copy trace path", on_click=_copy_trace_path, color=None).props(
+                        "flat unelevated no-caps"
+                    ).classes("action-btn")
+                    ui.button("Reveal trace", on_click=_reveal_trace, color=None).props(
+                        "flat unelevated no-caps"
+                    ).classes("action-btn")
+                    ui.button(
+                        "Close",
+                        on_click=_close_doctor,
+                        color=None,
+                    ).props(
+                        "flat unelevated no-caps"
+                    ).classes("action-btn is-primary")
 
-    await dialog
+        dialog.open()
+
+        statuses: list[ToolStatus] = await asyncio.to_thread(system_statuses, state.settings)
+        workspace_btwr = workspace_btwr_executable()
+        trace_event(
+            "ui.doctor.statuses_loaded",
+            statuses=[
+                {"name": status.name, "ok": status.ok, "path": status.path, "message": status.message}
+                for status in statuses
+            ],
+            workspace_btwr=workspace_btwr,
+        )
+        loaded["statuses"] = statuses
+        loaded["workspace_btwr"] = workspace_btwr
+        body.clear()
+        _render_body(body, statuses, workspace_btwr)
+
+        await dialog
+    finally:
+        _DOCTOR_DIALOG_OPEN = False
 
 
 def _can_repair_btwr(status: ToolStatus, workspace_btwr: str | None) -> bool:
     return bool(status.name == "btwr" and not status.ok and workspace_btwr and status.executable != workspace_btwr)
+
+
+def _cli_source_for_uv_install() -> Path | None:
+    for workspace_root in workspace_root_candidates():
+        cli_dir = workspace_root / "bt-web-report-cli"
+        if (cli_dir / "pyproject.toml").is_file():
+            return cli_dir
+    return None
+
+
+async def _install_btwr_via_uv(state: ManagerState, dialog: ui.dialog, cli_source: Path) -> None:
+    uv = resolve_executable("uv")
+    if uv is None:
+        ui.notify(
+            "uv not found on Manager PATH. Install uv first: brew install uv",
+            type="warning",
+            multi_line=True,
+        )
+        return
+    cmd = (uv, "tool", "install", "--force", str(cli_source))
+    trace_event("ui.doctor.install_btwr_uv.start", cmd=cmd)
+    ui.notify("Installing btwr via uv... (may take a moment)", type="info")
+
+    def _run() -> subprocess.CompletedProcess[str]:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=180, check=False)
+
+    try:
+        result = await asyncio.to_thread(_run)
+    except (OSError, subprocess.SubprocessError) as exc:
+        trace_event("ui.doctor.install_btwr_uv.failed", error=str(exc))
+        ui.notify(f"uv tool install failed: {exc}", type="negative", multi_line=True)
+        return
+    trace_event(
+        "ui.doctor.install_btwr_uv.done",
+        returncode=result.returncode,
+        stdout=result.stdout[-2000:],
+        stderr=result.stderr[-2000:],
+    )
+    if result.returncode != 0:
+        ui.notify(
+            f"uv tool install exited {result.returncode}: {result.stderr[-400:] or result.stdout[-400:]}",
+            type="negative",
+            multi_line=True,
+        )
+        return
+    installed = Path("~/.local/bin/btwr").expanduser()
+    state.settings = replace(state.settings, btwr_executable=str(installed))
+    save_settings(state.settings)
+    ui.notify(
+        f"Installed btwr to {installed}. Rerun System Check to confirm.",
+        type="positive",
+        multi_line=True,
+    )
+    dialog.close()
 
 
 def _copy_to_clipboard(text: str, *, success: str) -> None:
