@@ -62,6 +62,7 @@ from bt_web_report_manager.ui.dialogs import (
     open_settings_dialog,
     prompt_dialog,
 )
+from bt_web_report_manager.ui.image_processor import open_image_processor_dialog
 from bt_web_report_manager.ui.helpers import (
     action_card_states,
     badge_kind,
@@ -338,6 +339,13 @@ def build_page(state: ManagerState) -> None:
             lambda: on_doctor(),
             "",
             "Read-only check of btwr, pnpm, node, wrangler, git, gh, editor, and settings folder.",
+        )
+        _tool_button(
+            "PDF → PNG",
+            "image",
+            lambda: on_image_processor(),
+            "",
+            "Convert PDFs to full-resolution + web-optimized PNGs. Output to ~/Desktop/bt-web-report-images/.",
         )
         _tool_button(
             "Check updates",
@@ -1029,6 +1037,10 @@ def build_page(state: ManagerState) -> None:
     async def on_check_updates() -> None:
         trace_event("ui.toolbar.check_updates.clicked")
         await run_update_check(state.settings, log_message)
+
+    async def on_image_processor() -> None:
+        trace_event("ui.toolbar.image_processor.clicked")
+        await open_image_processor_dialog()
 
     async def on_sync_per_project_workflows() -> None:
         trace_event("ui.toolbar.sync_per_project_workflows.deprecated_clicked")

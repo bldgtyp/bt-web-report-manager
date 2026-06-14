@@ -27,6 +27,8 @@ dependencies = [
     "pydantic>=2.0",
     "requests>=2.31",
     "pyperclip>=1.8",
+    "pypdfium2>=5.9.0",
+    "pillow>=12.2.0",
 ]
 
 [project.optional-dependencies]
