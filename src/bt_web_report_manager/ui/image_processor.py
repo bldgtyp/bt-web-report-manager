@@ -8,6 +8,7 @@ a full-resolution and a web-optimized PNG, and both are written to
 from __future__ import annotations
 
 import asyncio
+from inspect import isawaitable
 import subprocess
 import tempfile
 from pathlib import Path
@@ -61,8 +62,10 @@ async def open_image_processor_dialog() -> None:
         )
         upload.on("rejected", lambda _e: ui.notify("Only .pdf files are accepted.", type="warning"))
 
-        log_widget = ui.log(max_lines=500).classes("nicegui-log").style(
-            "margin-top: 12px; min-height: 180px; max-height: 320px; font-size: 12px;"
+        log_widget = (
+            ui.log(max_lines=500)
+            .classes("nicegui-log")
+            .style("margin-top: 12px; min-height: 180px; max-height: 320px; font-size: 12px;")
         )
         log_widget_ref["widget"] = log_widget
         for line in log_lines:
@@ -79,13 +82,15 @@ async def open_image_processor_dialog() -> None:
                 "Close",
                 color=None,
                 on_click=dialog.close,
-            ).props("flat unelevated no-caps").classes("action-btn is-primary")
+            ).props(
+                "flat unelevated no-caps"
+            ).classes("action-btn is-primary")
 
     await dialog
 
 
 async def _handle_upload(event: Any, output_dir: Path, log: Any) -> None:
-    name = getattr(event, "name", "uploaded.pdf")
+    name = _upload_name(event)
     if not name.lower().endswith(".pdf"):
         log(f"SKIP: {name} (not a PDF)")
         trace_event("ui.image_processor.skip_non_pdf", name=name)
@@ -95,7 +100,7 @@ async def _handle_upload(event: Any, output_dir: Path, log: Any) -> None:
     trace_event("ui.image_processor.upload_received", name=name)
 
     try:
-        data = event.content.read()
+        data = await _read_upload_bytes(event)
     except Exception as exc:
         trace_exception("ui.image_processor.read_failed", exc, name=name)
         log(f"FAILED: {name}: could not read upload ({exc})")
@@ -106,7 +111,7 @@ async def _handle_upload(event: Any, output_dir: Path, log: Any) -> None:
     tmp_dir = Path(tempfile.mkdtemp(prefix="btwr-pdf-"))
     staged = tmp_dir / name
     try:
-        staged.write_bytes(data)
+        await asyncio.to_thread(staged.write_bytes, data)
         result = await asyncio.to_thread(convert_pdf, staged, output_dir)
     finally:
         try:
@@ -116,6 +121,44 @@ async def _handle_upload(event: Any, output_dir: Path, log: Any) -> None:
             pass
 
     _log_result(result, log)
+
+
+def _upload_name(event: Any) -> str:
+    upload_file = getattr(event, "file", None)
+    raw_name = getattr(upload_file, "name", None) or getattr(event, "name", None) or "uploaded.pdf"
+    return Path(str(raw_name)).name or "uploaded.pdf"
+
+
+async def _read_upload_bytes(event: Any) -> bytes:
+    upload_file = getattr(event, "file", None)
+    file_read = getattr(upload_file, "read", None)
+    if callable(file_read):
+        return _coerce_upload_bytes(await _maybe_await(file_read()))
+
+    content = getattr(event, "content", None)
+    content_read = getattr(content, "read", None)
+    if callable(content_read):
+        return _coerce_upload_bytes(await _maybe_await(content_read()))
+    if content is not None:
+        return _coerce_upload_bytes(content)
+
+    raise AttributeError("upload event has neither file nor content")
+
+
+async def _maybe_await(value: Any) -> Any:
+    if isawaitable(value):
+        return await value
+    return value
+
+
+def _coerce_upload_bytes(value: Any) -> bytes:
+    if isinstance(value, bytes):
+        return value
+    if isinstance(value, bytearray):
+        return bytes(value)
+    if isinstance(value, memoryview):
+        return value.tobytes()
+    raise TypeError(f"upload read returned {type(value).__name__}, expected bytes")
 
 
 def _log_result(result: PdfConversionResult, log: Any) -> None:
