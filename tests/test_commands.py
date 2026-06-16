@@ -3,6 +3,7 @@ from pathlib import Path
 from pytest import MonkeyPatch
 
 from bt_web_report_manager.commands import (
+    build_pdf_command,
     commit_push_command,
     dev_preview_command,
     executable_search_paths,
@@ -53,6 +54,19 @@ def test_action_command_specs(tmp_path: Path) -> None:
         str(renderer),
     )
     assert dev_preview_command(project, settings).long_running
+    assert build_pdf_command(project, settings).args == (
+        "btwr-dev",
+        "build-pdf",
+        str(tmp_path),
+        "--pnpm",
+        "pnpm-dev",
+        "--renderer-source",
+        str(renderer),
+    )
+    assert build_pdf_command(project, settings).cwd == tmp_path
+    # build-pdf exits on its own (unlike the preview/editor servers), so it is
+    # NOT long_running; the Stop button still applies while it runs.
+    assert not build_pdf_command(project, settings).long_running
     assert open_editor_command(project, settings).args == (
         "btwr-dev",
         "editor",

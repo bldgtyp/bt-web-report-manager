@@ -138,6 +138,8 @@ def test_action_card_states_preserve_disabled_reasons(tmp_path: Path) -> None:
 
     assert states["scrape"].enabled
     assert states["variables"].enabled
+    assert states["build_pdf"].enabled
+    assert states["build_pdf"].label == "Build PDF"
     assert states["commit"].enabled is False
     assert "clean" in states["commit"].tooltip
 

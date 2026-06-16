@@ -244,6 +244,30 @@ def dev_preview_command(project: ProjectStatus, settings: ManagerSettings) -> Co
     )
 
 
+def build_pdf_command(project: ProjectStatus, settings: ManagerSettings) -> CommandSpec:
+    """Build the client-deliverable PDF locally for pre-publish QA.
+
+    Runs ``btwr build-pdf`` (full site build + Paged.js capture) and exits on
+    its own, unlike the long-running preview/editor servers. The Manager scans
+    the output for the ``PDF ready:`` marker line and opens the artifact.
+    """
+
+    args = [
+        command_executable(settings.btwr_executable),
+        "build-pdf",
+        str(project.project_path),
+        "--pnpm",
+        command_executable(settings.pnpm_executable),
+    ]
+    if settings.renderer_source is not None:
+        args.extend(["--renderer-source", str(settings.renderer_source)])
+    return CommandSpec(
+        name="Build PDF",
+        args=tuple(args),
+        cwd=project.project_path,
+    )
+
+
 def reveal_command(project: ProjectStatus) -> CommandSpec:
     return CommandSpec(
         name="Reveal in Finder",

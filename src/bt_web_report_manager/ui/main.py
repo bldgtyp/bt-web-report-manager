@@ -22,6 +22,7 @@ from bt_web_report_manager import __version__
 from bt_web_report_manager.commands import (
     SYNC_PER_PROJECT_DEPRECATION_MESSAGE,
     CommandSpec,
+    build_pdf_command,
     commit_push_command,
     dev_preview_command,
     open_code_editor_command,
@@ -82,7 +83,11 @@ from bt_web_report_manager.ui.helpers import (
     suggest_commit_message,
 )
 from bt_web_report_manager.ui.new_project import open_new_project_wizard
-from bt_web_report_manager.ui.preview import editor_browser_urls, local_preview_url_from_log_line
+from bt_web_report_manager.ui.preview import (
+    editor_browser_urls,
+    local_preview_url_from_log_line,
+    report_pdf_path_from_log_line,
+)
 from bt_web_report_manager.ui.project_variables import open_project_variables_dialog
 from bt_web_report_manager.ui.runner import ProcessRunner
 from bt_web_report_manager.ui.state import ManagerState
@@ -95,6 +100,7 @@ LOCK_REFRESH_INTERVAL_SECONDS = 60.0
 ACTIVE_TOOLTIPS: dict[str, str] = {
     "scrape": "Run btwr scrape against the configured PHPP workbook. Writes a Dropbox lock.",
     "dev": "Start pnpm dev for live local preview at http://localhost:4321.",
+    "build_pdf": "Build the client PDF locally (btwr build-pdf) and open it for QA. Takes ~30-60s.",
     "variables": "Edit narrative.* project variables stored in project.yaml.",
     "editor": "Start the TinaCMS authoring server (pnpm dev:editor) to edit project content.",
     "code_editor": "Open this project in the configured code editor (VS Code / Cursor / etc).",
@@ -119,6 +125,7 @@ def build_page(state: ManagerState) -> None:
     current_screen = {"name": "index"}
     scrape_feedback: dict[str, Any] = {"run": None, "dialog": None, "title": None, "message": None, "spinner": None}
     preview_browser = {"armed": False, "opened": False, "mode": "preview"}
+    pdf_qa = {"armed": False, "opened": False}
 
     def log_message(text: str) -> None:
         trace_event("ui.main.log_message", text=text)
@@ -139,6 +146,7 @@ def build_page(state: ManagerState) -> None:
             active_scrape.output_lines.append(line)
         log_message(line)
         maybe_open_local_browser(line)
+        maybe_open_pdf(line)
 
     def on_runner_done(name: str, exit_code: int, refresh_on_success: bool, canceled: bool) -> None:
         trace_event(
@@ -160,6 +168,11 @@ def build_page(state: ManagerState) -> None:
             preview_browser["armed"] = False
             preview_browser["opened"] = False
             preview_browser["mode"] = "preview"
+        if name == "Build PDF":
+            if exit_code != 0 and not canceled and not pdf_qa["opened"]:
+                log_message("Build PDF failed; see the log above. The PDF was not produced.")
+            pdf_qa["armed"] = False
+            pdf_qa["opened"] = False
         if name == "Scrape":
             asyncio.create_task(_finish_scrape_feedback(exit_code=exit_code, canceled=canceled))
         # Apply idle state immediately. The timer below still owns any async
@@ -192,6 +205,25 @@ def build_page(state: ManagerState) -> None:
                 log_message(f"Opened {label} in browser: {browser_url}")
             else:
                 log_message(f"{label} is ready: {browser_url}")
+
+    def maybe_open_pdf(line: str) -> None:
+        if not pdf_qa["armed"] or pdf_qa["opened"]:
+            return
+        path = report_pdf_path_from_log_line(line)
+        if path is None:
+            return
+        pdf_qa["opened"] = True
+        try:
+            uri = Path(path).expanduser().as_uri()
+            opened = webbrowser.open(uri, new=1)
+        except Exception as exc:
+            trace_exception("ui.action.pdf_open.failed", exc, path=path)
+            log_message(f"PDF built, but the viewer did not open: {path}")
+            return
+        if opened:
+            log_message(f"Opened report PDF: {path}")
+        else:
+            log_message(f"PDF built: {path}")
 
     async def _post_command_refresh(do_refresh: bool) -> None:
         trace_event("ui.main.post_command_refresh", do_refresh=do_refresh)
@@ -508,6 +540,7 @@ def build_page(state: ManagerState) -> None:
                         [
                             ("scrape", "play_arrow", run_scrape, "is-warning"),
                             ("dev", "flare", run_dev_preview, ""),
+                            ("build_pdf", "picture_as_pdf", run_build_pdf, ""),
                         ],
                     )
                     _action_group(
@@ -865,6 +898,21 @@ def build_page(state: ManagerState) -> None:
                 preview_browser["armed"] = False
                 preview_browser["opened"] = False
                 preview_browser["mode"] = "preview"
+
+    async def run_build_pdf() -> None:
+        project = state.selected_project()
+        if project is None:
+            trace_event("ui.action.build_pdf.no_project")
+            return
+        # Read-only QA build into the disposable .builds workspace — no Dropbox
+        # lock needed (unlike scrape/preview which take one). Arm the auto-open
+        # before starting so the `PDF ready:` marker is caught as it streams.
+        pdf_qa["armed"] = True
+        pdf_qa["opened"] = False
+        started = await _start_command(build_pdf_command(project, state.settings))
+        if not started:
+            pdf_qa["armed"] = False
+            pdf_qa["opened"] = False
 
     async def run_open_editor() -> None:
         project = state.selected_project()

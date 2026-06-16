@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from bt_web_report_manager.ui.preview import editor_browser_urls, local_preview_url_from_log_line, tina_admin_url
+from bt_web_report_manager.ui.preview import (
+    editor_browser_urls,
+    local_preview_url_from_log_line,
+    report_pdf_path_from_log_line,
+    tina_admin_url,
+)
 
 
 def test_local_preview_url_from_astro_log_line() -> None:
@@ -36,3 +41,15 @@ def test_editor_browser_urls_include_admin_and_live_preview() -> None:
         "http://localhost:4321/admin/index.html",
         "http://localhost:4321/",
     )
+
+
+def test_report_pdf_path_from_build_pdf_marker_line() -> None:
+    line = "PDF ready: /Users/em/.builds/builds/project-2610/dist/report.pdf"
+    assert report_pdf_path_from_log_line(line) == "/Users/em/.builds/builds/project-2610/dist/report.pdf"
+
+
+def test_report_pdf_path_ignores_other_pdf_log_lines() -> None:
+    # build-pdf.mjs prints its own progress lines; only the btwr marker counts.
+    assert report_pdf_path_from_log_line("[build-pdf] wrote /tmp/dist/report.pdf") is None
+    assert report_pdf_path_from_log_line("PDF ready: /tmp/dist/something-else.txt") is None
+    assert report_pdf_path_from_log_line("navigating to http://127.0.0.1:5050/print/") is None

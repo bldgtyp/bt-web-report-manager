@@ -10,6 +10,24 @@ LOCAL_PREVIEW_URL_RE = re.compile(r"https?://(?:localhost|127\.0\.0\.1|\[::1\])(
 LOCAL_PREVIEW_HOSTS = {"localhost", "127.0.0.1", "::1"}
 TINA_API_PATHS = {"/graphql"}
 
+REPORT_PDF_READY_MARKER = "PDF ready:"
+
+
+def report_pdf_path_from_log_line(line: str) -> str | None:
+    """Extract the built report.pdf path from a ``btwr build-pdf`` log line.
+
+    ``btwr build-pdf`` ends with a ``PDF ready: <path>`` line once the artifact
+    has been written; the Manager scans for it to open the PDF for QA.
+    """
+
+    index = line.find(REPORT_PDF_READY_MARKER)
+    if index == -1:
+        return None
+    candidate = line[index + len(REPORT_PDF_READY_MARKER) :].strip()
+    if not candidate.endswith("report.pdf"):
+        return None
+    return candidate
+
 
 def local_preview_url_from_log_line(line: str) -> str | None:
     """Extract the local Astro URL from a dev-server log line."""
