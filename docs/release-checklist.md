@@ -139,6 +139,12 @@ xcrun notarytool store-credentials bt-web-report-manager \
 
 ## Publish
 
+> **Gate first:** before publishing, run the verification block in
+> `notarization-preflight.md` against `dist/bt-web-report-manager-<version>.zip`.
+> All four checks (staple, signature, `spctl` clean, `spctl` with quarantine)
+> must pass. This is what prevents a re-occurrence of the ad-hoc "damaged"
+> build reaching a partner Mac.
+
 ```bash
 gh release create "v${VERSION}" \
   "dist/bt-web-report-manager-${VERSION}.zip" \
