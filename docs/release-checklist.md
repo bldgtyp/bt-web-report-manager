@@ -65,11 +65,17 @@ For the current internal build, the `.app` is the Manager UI only. It still
 wraps external command-line tools, so John's Mac needs the same local
 toolchain before project actions are safe.
 
-1. Install the Manager app:
-   - Download `bt-web-report-manager-<version>.zip` from the
-     `bldgtyp/bt-web-report-manager` GitHub Release.
-   - Unzip it and move `bt-web-report Manager.app` to `/Applications`.
-   - Open it once.
+1. Install the Manager app. **Never have a partner double-click the ZIP** —
+   third-party unarchivers corrupt the signed `.app` and macOS reports it as
+   "is damaged and can't be opened" (see `notarization-preflight.md`). Use one
+   of, in order of preference:
+   - **DMG (preferred):** download `bt-web-report-manager-<version>.dmg` from
+     the GitHub Release, open it, drag `bt-web-report Manager.app` to
+     `/Applications`. Nothing to extract, nothing to corrupt.
+   - **`scripts/install-app.sh`:** run it from the shared Dropbox checkout;
+     it `ditto`-extracts the synced `dist/` archive, verifies signing +
+     notarization, installs, and launches. No download needed.
+   - **Manual:** `ditto -x -k <zip> /Applications/` (never double-click).
 2. Confirm Dropbox access:
    - Dropbox must sync the shared BLDGTYP project root at
      `~/Dropbox/bldgtyp`.
