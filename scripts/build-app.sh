@@ -49,6 +49,37 @@ verify_release_zip() {
   spctl -a -vv "$tmp_dir/$APP_NAME.app"
 }
 
+# Build a notarized, stapled drag-install DMG from the already-signed (and,
+# when NOTARIZE_PROFILE is set, already-stapled) .app. A DMG is the robust
+# partner-distribution format: the user drags an untouched bundle out of a
+# read-only image, so there is no extraction step to corrupt the signature.
+build_dmg() {
+  local dmg_path="$DIST_DIR/bt-web-report-manager-${VERSION}.dmg"
+  local staging
+  staging="$(mktemp -d)"
+  trap 'rm -rf "$staging"' RETURN
+
+  echo "Building DMG..."
+  ditto "$APP_PATH" "$staging/$APP_NAME.app"
+  ln -s /Applications "$staging/Applications"
+  rm -f "$dmg_path"
+  hdiutil create -volname "$APP_NAME" -srcfolder "$staging" \
+    -fs HFS+ -format UDZO -ov "$dmg_path" >/dev/null
+
+  echo "Signing DMG..."
+  codesign --force --timestamp --sign "$CODESIGN_IDENTITY" "$dmg_path"
+
+  if [ -n "$NOTARIZE_PROFILE" ]; then
+    echo "Notarizing DMG..."
+    xcrun notarytool submit "$dmg_path" \
+      --keychain-profile "$NOTARIZE_PROFILE" --wait
+    xcrun stapler staple "$dmg_path"
+    xcrun stapler validate "$dmg_path"
+    spctl -a -vv -t open --context context:primary-signature "$dmg_path"
+  fi
+  echo "DMG: $dmg_path"
+}
+
 echo "[1/5] Syncing dependencies..."
 uv sync --extra dev --extra package
 
@@ -97,9 +128,10 @@ if [ -n "$NOTARIZE_PROFILE" ]; then
   ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
   verify_release_zip
   echo "Notarized archive: $ZIP_PATH"
+  build_dmg
 else
   echo "[4/5] Skipping notarization (set NOTARIZE_PROFILE to enable)"
-  echo "[5/5] Skipping staple/zip"
+  echo "[5/5] Skipping staple/zip/dmg"
 fi
 
 du -sh "$APP_PATH" | awk '{print "Bundle size:", $1}'

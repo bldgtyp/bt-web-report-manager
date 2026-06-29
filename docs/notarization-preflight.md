@@ -81,13 +81,58 @@ John's download will open with a normal first-run prompt and no `xattr`
 workaround. If any check fails, do not publish — re-run `make release-build`
 and confirm notarization actually completed.
 
-## Then publish
+## Gate: verify the DMG too
 
-Only after all four checks pass:
+`make release-build` now also produces a notarized, stapled
+`dist/bt-web-report-manager-<version>.dmg` (the drag-install format for
+partners). Verify it the same way:
 
 ```bash
-make publish-release
+VERSION=$(uv run python -c "from bt_web_report_manager import __version__ as v; print(v)")
+DMG="dist/bt-web-report-manager-${VERSION}.dmg"
+
+echo "== DMG ticket present =="
+xcrun stapler validate "$DMG"                         # -> The validate action worked!
+
+echo "== DMG accepted by Gatekeeper =="
+spctl -a -vv -t open --context context:primary-signature "$DMG"   # -> accepted / Notarized Developer ID
+
+echo "== app inside the DMG is itself stapled (opens offline once dragged out) =="
+MNT="$(mktemp -d)"
+hdiutil attach -nobrowse -readonly -mountpoint "$MNT" "$DMG" >/dev/null
+xcrun stapler validate "$MNT/bt-web-report Manager.app"
+spctl -a -vvv -t exec "$MNT/bt-web-report Manager.app"
+hdiutil detach "$MNT" >/dev/null
 ```
+
+## Then publish
+
+Only after all checks pass:
+
+```bash
+make publish-release   # uploads both the .zip and the .dmg
+```
+
+## Partner installs: the artifact is not the only failure point
+
+A fully notarized, stapled artifact can **still** show "is damaged and can't
+be opened" on a partner's Mac if they extract the ZIP with anything other than
+Apple's `ditto` / Archive Utility. PyInstaller bundles carry sealed symlinks
+and AppleDouble (`._`) metadata; third-party unarchivers (Keka, The
+Unarchiver) and browser auto-expand corrupt them and invalidate the signature.
+Telltale sign: removing quarantine with `xattr -dr com.apple.quarantine` does
+**not** fix it (a quarantine problem would clear; a broken-signature problem
+won't).
+
+Give partners one of these, in order of robustness:
+
+1. **The DMG** — drag-install, nothing to extract, nothing to corrupt. Preferred.
+2. **`scripts/install-app.sh`** — extracts with `ditto`, verifies signature +
+   notarization before and after install, then launches. Works against the
+   synced Dropbox `dist/` zip with no download:
+   `./scripts/install-app.sh`.
+3. **Manual `ditto`** — `ditto -x -k <zip> /Applications/` (never double-click
+   the zip).
 
 ## If a build ever fails the gate
 

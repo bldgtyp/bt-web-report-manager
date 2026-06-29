@@ -1,5 +1,6 @@
 VERSION := $(shell uv run python -c 'from bt_web_report_manager import __version__; print(__version__)')
 RELEASE_ZIP := dist/bt-web-report-manager-$(VERSION).zip
+RELEASE_DMG := dist/bt-web-report-manager-$(VERSION).dmg
 RELEASE_TITLE ?= v$(VERSION)
 RELEASE_NOTES ?= release-notes.md
 CODESIGN_IDENTITY ?= 2D9B3302F8D8203D837B071A3CFAF5CD9FEACF4E
@@ -25,6 +26,9 @@ publish-release:
 		else \
 			gh release create "v$(VERSION)" "$(RELEASE_ZIP)" --repo bldgtyp/bt-web-report-manager --title "$(RELEASE_TITLE)" --generate-notes; \
 		fi; \
+	fi
+	if [ -f "$(RELEASE_DMG)" ]; then \
+		gh release upload "v$(VERSION)" "$(RELEASE_DMG)" --repo bldgtyp/bt-web-report-manager --clobber; \
 	fi
 
 test:
