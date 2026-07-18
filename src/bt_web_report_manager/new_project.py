@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 from bt_web_report_manager.commands import CommandSpec, command_executable, resolve_executable, run_command
 from bt_web_report_manager.models import ManagerSettings
+from bt_web_report_manager.projects import ACCESS_MODE_PUBLIC, access_mode_label
 from bt_web_report_manager.trace import trace_event, trace_exception
 
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -57,6 +58,7 @@ class NewProjectPlan:
     repo_name: str
     repo_owner: str
     production_url: str
+    access_mode: str = ACCESS_MODE_PUBLIC
     overwrite_existing: bool = False
 
     @property
@@ -80,6 +82,7 @@ class NewProjectPlan:
             f"PHPP workbook: {phpp}",
             f"GitHub repo: {self.repo_owner}/{self.repo_name}",
             f"Production URL: {self.production_url}",
+            f"Report access: {access_mode_label(self.access_mode)}",
             f"Overwrite existing 04_Web contents: {'yes' if self.overwrite_existing else 'no'}",
         ]
 
@@ -100,8 +103,9 @@ class NewProjectPlan:
             "5. Write or confirm project.yaml with the metadata shown above.",
             f"6. {phpp_line}",
             f"7. Set publishing.production_url to {self.production_url}",
-            "8. Git init, first commit, and push main. Do not install Node dependencies in 04_Web.",
-            "9. Configure Cloudflare Pages and reserve the production subdomain.",
+            "8. Leave report access as public/noindex unless OTP gating is configured after bootstrap.",
+            "9. Git init, first commit, and push main. Do not install Node dependencies in 04_Web.",
+            "10. Configure Cloudflare Pages and reserve the production subdomain.",
         ]
 
 

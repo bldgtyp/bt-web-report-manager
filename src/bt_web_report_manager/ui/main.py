@@ -8,6 +8,7 @@ releasing locks. All UI state lives in ``ManagerState`` (in ``state.py``).
 from __future__ import annotations
 
 import asyncio
+import re
 import webbrowser
 from dataclasses import replace
 from datetime import datetime
@@ -48,7 +49,15 @@ from bt_web_report_manager.locks import (
 )
 from bt_web_report_manager.models import ProjectStatus
 from bt_web_report_manager.projects import discover_projects
-from bt_web_report_manager.projects import set_project_phpp_path, validate_project_web_root
+from bt_web_report_manager.projects import (
+    ACCESS_MODE_CLOUDFLARE_OTP,
+    ACCESS_MODE_PUBLIC,
+    access_mode_label,
+    normalize_access_emails,
+    set_project_access,
+    set_project_phpp_path,
+    validate_project_web_root,
+)
 from bt_web_report_manager.settings import cleanup_project_runtime, save_settings
 from bt_web_report_manager.ui.command_feedback import (
     ScrapeRunFeedback,
@@ -77,6 +86,9 @@ from bt_web_report_manager.ui.helpers import (
     project_file_locations,
     project_metrics,
     project_row,
+    report_access_badge,
+    report_access_helper,
+    report_access_warning,
     scrape_disabled_reason,
     selected_disabled_reason,
     status_explanations,
@@ -565,6 +577,7 @@ def build_page(state: ManagerState) -> None:
 
                 with ui.element("div").classes("workspace-lower-grid"):
                     render_files_locations(project)
+                    render_report_access(project)
                     render_action_log(project)
                     render_status_notes(project)
 
@@ -666,6 +679,116 @@ def build_page(state: ManagerState) -> None:
                     ).props(
                         "flat dense round"
                     ).classes("icon-tool")
+
+    def render_report_access(project: ProjectStatus) -> None:
+        with ui.element("div").classes("info-panel access-panel"):
+            with ui.element("div").classes("panel-header"):
+                ui.label("Report access").classes("panel-title")
+                with ui.element("span").classes(
+                    "chip chip-info"
+                    if project.metadata.access_mode == ACCESS_MODE_CLOUDFLARE_OTP
+                    else "chip chip-neutral"
+                ):
+                    ui.label(report_access_badge(project))
+                    ui.tooltip(report_access_helper(project))
+                ui.button(
+                    "Edit",
+                    icon="admin_panel_settings",
+                    color=None,
+                    on_click=lambda: ui.timer(0, lambda: open_report_access_dialog(project), once=True),
+                ).props("flat dense unelevated no-caps").classes("panel-tool")
+            ui.label(report_access_helper(project)).style("font-size: 12.5px; color: var(--text-2); line-height: 1.55;")
+            ui.label(report_access_warning()).style(
+                "font-size: 12.5px; color: var(--warning); line-height: 1.55; margin-top: 8px;"
+            )
+            if project.metadata.access_allowed_emails:
+                ui.label("Allowed emails").classes("section-label").style("margin-top: 12px;")
+                for email in project.metadata.access_allowed_emails:
+                    ui.label(email).classes("file-value")
+
+    async def open_report_access_dialog(project: ProjectStatus) -> None:
+        trace_event(
+            "ui.report_access.open",
+            project=project.project_path,
+            slug=project.metadata.slug,
+            mode=project.metadata.access_mode,
+            allowed_emails=project.metadata.access_allowed_emails,
+        )
+        mode_ref = {"value": project.metadata.access_mode}
+        dialog = ui.dialog()
+
+        def _mode_options() -> dict[str, str]:
+            return {
+                ACCESS_MODE_PUBLIC: "Public",
+                ACCESS_MODE_CLOUDFLARE_OTP: "Cloudflare OTP",
+            }
+
+        def _email_values(text: str) -> list[str]:
+            return [item for item in re.split(r"[,\n]+", text) if item.strip()]
+
+        async def _save() -> None:
+            mode = str(mode_ref["value"] or ACCESS_MODE_PUBLIC)
+            emails = _email_values(email_input.value or "")
+            trace_event(
+                "ui.report_access.save.clicked",
+                project=project.project_path,
+                slug=project.metadata.slug,
+                mode=mode,
+                emails=emails,
+            )
+            try:
+                normalize_access_emails(emails)
+            except ValueError as exc:
+                trace_exception("ui.report_access.save.validation_failed", exc, project=project.project_path)
+                ui.notify(str(exc), type="warning")
+                return
+            if not await prepare_mutating_action(project, refresh_after_lock=False):
+                return
+            try:
+                await asyncio.to_thread(set_project_access, project.project_path, mode, emails)
+            except ValueError as exc:
+                trace_exception("ui.report_access.save.failed", exc, project=project.project_path)
+                log_message(f"Report access was not changed: {exc}")
+                ui.notify(str(exc), type="negative")
+                return
+            log_message(f"Report access saved for {project.metadata.slug}: {access_mode_label(mode)}.")
+            dialog.close()
+            await refresh_projects(project.project_path)
+
+        with dialog, ui.card().classes("min-w-[560px] max-w-[640px]").style("padding: 16px 20px;"):
+            ui.label("Report access").classes("dialog-title")
+            ui.label(project.metadata.project_title).classes("dialog-subtitle")
+            mode_toggle = ui.toggle(_mode_options(), value=project.metadata.access_mode).props("unelevated")
+            mode_toggle.on("update:model-value", lambda e: mode_ref.update({"value": _event_value(e.args)}))
+            email_input = (
+                ui.textarea(
+                    "Allowed emails",
+                    value="\n".join(project.metadata.access_allowed_emails),
+                    placeholder="owner@example.com\nclient@example.com",
+                )
+                .props("outlined autogrow")
+                .classes("w-full")
+            )
+            ui.label("Ed and John BLDGTYP emails are added automatically in OTP mode.").style(
+                "font-size: 12px; color: var(--text-2);"
+            )
+            ui.label(report_access_warning()).style("font-size: 12px; color: var(--warning);")
+            with ui.row().classes("w-full justify-end gap-2"):
+                ui.button("Cancel", on_click=dialog.close, color=None).props("flat unelevated no-caps").classes(
+                    "action-btn"
+                )
+                ui.button("Save", on_click=_save, color=None).props("flat unelevated no-caps").classes(
+                    "action-btn is-primary"
+                )
+        await dialog
+        trace_event("ui.report_access.closed", project=project.project_path)
+
+    def _event_value(args: Any) -> str:
+        if isinstance(args, str):
+            return args
+        if isinstance(args, list) and args and isinstance(args[0], str):
+            return args[0]
+        return ""
 
     def render_action_log(project: ProjectStatus) -> None:
         with ui.element("div").classes("log-shell workspace-log"):
@@ -831,7 +954,7 @@ def build_page(state: ManagerState) -> None:
         )
         await refresh_projects(new_root)
 
-    async def prepare_mutating_action(project: ProjectStatus) -> bool:
+    async def prepare_mutating_action(project: ProjectStatus, *, refresh_after_lock: bool = True) -> bool:
         trace_event("ui.mutating_action.prepare.start", project=project.project_path, slug=project.metadata.slug)
         lock = read_lock(project.project_path)
         if lock_requires_confirmation(lock):
@@ -853,7 +976,8 @@ def build_page(state: ManagerState) -> None:
             "ui.mutating_action.lock_written", project=project.project_path, ttl_hours=state.settings.lock_ttl_hours
         )
         log_message(f"Lock refreshed for {project.metadata.slug}.")
-        await refresh_projects(project.project_path)
+        if refresh_after_lock:
+            await refresh_projects(project.project_path)
         return True
 
     async def _start_command(spec: CommandSpec) -> bool:

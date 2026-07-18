@@ -5,17 +5,30 @@ from __future__ import annotations
 import getpass
 import json
 import os
+import re
 import socket
 from datetime import datetime, timezone
+from io import StringIO
 from pathlib import Path
 from typing import Any
 
 import yaml
+from ruamel.yaml import YAML
 
 from bt_web_report_manager.git_status import read_git_status
 from bt_web_report_manager.locks import read_lock
 from bt_web_report_manager.models import GitStatus, ManagerSettings, ProjectMetadata, ProjectStatus
 from bt_web_report_manager.trace import trace_event, trace_exception
+
+ACCESS_MODE_PUBLIC = "public"
+ACCESS_MODE_CLOUDFLARE_OTP = "cloudflare_access_otp"
+ACCESS_MODES = {ACCESS_MODE_PUBLIC, ACCESS_MODE_CLOUDFLARE_OTP}
+ACCESS_MODE_LABELS = {
+    ACCESS_MODE_PUBLIC: "Public, noindex",
+    ACCESS_MODE_CLOUDFLARE_OTP: "Gated by Cloudflare OTP",
+}
+BTWR_REQUIRED_OTP_EMAILS = ("ed@bldgtyp.com", "john@bldgtyp.com")
+EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 
 def discover_projects(settings: ManagerSettings) -> list[ProjectStatus]:
@@ -80,6 +93,8 @@ def read_project_status(project_path: Path, settings: ManagerSettings) -> Projec
     phpp_modified_at = _mtime(metadata.phpp_path) if metadata.phpp_path and metadata.phpp_path.exists() else None
     if metadata.phpp_path and not metadata.phpp_path.exists():
         warnings.append(f"PHPP workbook missing: {metadata.phpp_path}")
+    if metadata.access_warning:
+        warnings.append(metadata.access_warning)
 
     git = read_git_status(project_path, settings.git_executable)
     lock = read_lock(project_path)
@@ -116,6 +131,7 @@ def read_project_metadata(project_path: Path) -> ProjectMetadata:
     data_raw = source_files.get("data_dir", "data")
     phpp_path = (project_path / phpp_raw).resolve() if phpp_raw else None
     data_dir = (project_path / data_raw).resolve()
+    access_mode, access_allowed_emails, access_warning = _parse_project_access(publishing.get("access"))
     metadata = ProjectMetadata(
         slug=str(raw.get("slug") or project_path.name),
         project_title=str(raw.get("project_title") or raw.get("building_name") or project_path.name),
@@ -125,9 +141,40 @@ def read_project_metadata(project_path: Path) -> ProjectMetadata:
         phpp_path=phpp_path,
         data_dir=data_dir,
         production_url=_optional_str(publishing.get("production_url")),
+        access_mode=access_mode,
+        access_allowed_emails=access_allowed_emails,
+        access_warning=access_warning,
     )
     trace_event("projects.metadata.done", path=project_yaml, metadata=metadata)
     return metadata
+
+
+def _parse_project_access(access: Any) -> tuple[str, tuple[str, ...], str | None]:
+    if access is None:
+        return ACCESS_MODE_PUBLIC, (), None
+    if not isinstance(access, dict):
+        return ACCESS_MODE_PUBLIC, (), "publishing.access must be a mapping."
+
+    raw_mode = access.get("mode", ACCESS_MODE_PUBLIC)
+    mode = str(raw_mode)
+    warning: str | None = None
+    if mode not in ACCESS_MODES:
+        warning = f"publishing.access.mode is unknown: {mode}"
+        mode = ACCESS_MODE_PUBLIC
+
+    raw_emails = access.get("allowed_emails", [])
+    if not isinstance(raw_emails, list):
+        return mode, (), "publishing.access.allowed_emails must be a list."
+
+    try:
+        emails = normalize_access_emails(raw_emails)
+    except ValueError as exc:
+        return mode, (), str(exc)
+    if mode == ACCESS_MODE_CLOUDFLARE_OTP:
+        missing = [email for email in BTWR_REQUIRED_OTP_EMAILS if email not in emails]
+        if missing:
+            warning = "publishing.access.allowed_emails is missing required BLDGTYP email(s): " + ", ".join(missing)
+    return mode, tuple(emails), warning
 
 
 def set_project_phpp_path(project_path: Path, phpp_path: Path | None) -> Path:
@@ -151,14 +198,8 @@ def set_project_phpp_path(project_path: Path, phpp_path: Path | None) -> Path:
             msg = "PHPP workbook must be an .xlsx or .xlsm file."
             raise ValueError(msg)
 
-    raw = yaml.safe_load(project_yaml.read_text()) or {}
-    if not isinstance(raw, dict):
-        msg = f"project.yaml must contain a mapping: {project_yaml}"
-        raise ValueError(msg)
-    source_files = raw.get("source_files")
-    if not isinstance(source_files, dict):
-        source_files = {}
-        raw["source_files"] = source_files
+    raw = _read_project_yaml_mapping(project_yaml)
+    source_files = _ensure_mapping_section(raw, "source_files")
     if phpp_path is None:
         source_files["phpp_path"] = ""
     else:
@@ -172,6 +213,102 @@ def set_project_phpp_path(project_path: Path, phpp_path: Path | None) -> Path:
         stored=source_files["phpp_path"],
     )
     return project_yaml
+
+
+def set_project_access(project_path: Path, mode: str, allowed_emails: list[str] | tuple[str, ...]) -> Path:
+    """Update ``publishing.access`` in a content-only project's project.yaml."""
+    project_yaml = project_path / "project.yaml"
+    trace_event(
+        "projects.access.set.start",
+        project_path=project_path,
+        project_yaml=project_yaml,
+        mode=mode,
+        allowed_emails=allowed_emails,
+    )
+    if not project_yaml.exists():
+        msg = f"project.yaml does not exist: {project_yaml}"
+        raise ValueError(msg)
+    if mode not in ACCESS_MODES:
+        msg = f"Report access mode must be one of: {', '.join(sorted(ACCESS_MODES))}."
+        raise ValueError(msg)
+
+    raw, yaml_rt = _read_project_yaml_round_trip(project_yaml)
+    publishing = _ensure_mapping_section(raw, "publishing")
+
+    emails = normalize_access_emails(allowed_emails)
+    if mode == ACCESS_MODE_PUBLIC:
+        emails = []
+    else:
+        emails = normalize_access_emails([*emails, *BTWR_REQUIRED_OTP_EMAILS])
+        if not emails:
+            msg = "Cloudflare OTP access requires at least one allowed email."
+            raise ValueError(msg)
+
+    publishing["access"] = {"mode": mode, "allowed_emails": emails}
+    _write_project_yaml_round_trip(project_yaml, yaml_rt, raw)
+    trace_event(
+        "projects.access.set.done",
+        project_path=project_path,
+        project_yaml=project_yaml,
+        mode=mode,
+        allowed_emails=emails,
+    )
+    return project_yaml
+
+
+def normalize_access_emails(values: list[str] | tuple[str, ...]) -> list[str]:
+    emails: list[str] = []
+    seen: set[str] = set()
+    for index, value in enumerate(values):
+        if not isinstance(value, str):
+            msg = f"Allowed email #{index + 1} must be a string."
+            raise ValueError(msg)
+        email = value.strip().lower()
+        if not email:
+            continue
+        if not EMAIL_RE.fullmatch(email):
+            msg = f"Allowed email is not valid: {value}"
+            raise ValueError(msg)
+        if email not in seen:
+            emails.append(email)
+            seen.add(email)
+    return emails
+
+
+def access_mode_label(mode: str) -> str:
+    return ACCESS_MODE_LABELS.get(mode, ACCESS_MODE_LABELS[ACCESS_MODE_PUBLIC])
+
+
+def _read_project_yaml_mapping(project_yaml: Path) -> dict[str, Any]:
+    raw = yaml.safe_load(project_yaml.read_text()) or {}
+    if not isinstance(raw, dict):
+        msg = f"project.yaml must contain a mapping: {project_yaml}"
+        raise ValueError(msg)
+    return raw
+
+
+def _ensure_mapping_section(raw: dict[str, Any], key: str) -> dict[str, Any]:
+    section = raw.get(key)
+    if not isinstance(section, dict):
+        section = {}
+        raw[key] = section
+    return section
+
+
+def _read_project_yaml_round_trip(project_yaml: Path) -> tuple[dict[str, Any], YAML]:
+    yaml_rt = YAML()
+    yaml_rt.preserve_quotes = True
+    raw = yaml_rt.load(project_yaml.read_text()) or {}
+    if not isinstance(raw, dict):
+        msg = f"project.yaml must contain a mapping: {project_yaml}"
+        raise ValueError(msg)
+    return raw, yaml_rt
+
+
+def _write_project_yaml_round_trip(project_yaml: Path, yaml_rt: YAML, raw: dict[str, Any]) -> None:
+    stream = StringIO()
+    yaml_rt.dump(raw, stream)
+    project_yaml.write_text(stream.getvalue())
 
 
 def validate_project_web_root(path: Path) -> Path:

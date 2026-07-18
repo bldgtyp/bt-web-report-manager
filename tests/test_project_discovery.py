@@ -7,9 +7,11 @@ import yaml
 
 from bt_web_report_manager.models import ManagerSettings
 from bt_web_report_manager.projects import (
+    BTWR_REQUIRED_OTP_EMAILS,
     _with_badges,
     discover_projects,
     read_project_status,
+    set_project_access,
     set_project_phpp_path,
     validate_project_web_root,
 )
@@ -129,6 +131,120 @@ def test_set_project_phpp_path_rejects_non_workbook(tmp_path: Path) -> None:
         set_project_phpp_path(project, not_workbook)
     except ValueError as exc:
         assert ".xlsx or .xlsm" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError")
+
+
+def test_read_project_metadata_parses_report_access(tmp_path: Path) -> None:
+    project = _make_project(tmp_path / "Project" / "04_Web", "project")
+    raw = yaml.safe_load((project / "project.yaml").read_text())
+    raw["publishing"]["access"] = {
+        "mode": "cloudflare_access_otp",
+        "allowed_emails": ["Ed@BLDGTYP.com", "john@bldgtyp.com", "owner@example.com"],
+    }
+    (project / "project.yaml").write_text(yaml.safe_dump(raw, sort_keys=False))
+
+    status = read_project_status(project, ManagerSettings(projects_root=tmp_path))
+
+    assert status.metadata.access_mode == "cloudflare_access_otp"
+    assert status.metadata.access_allowed_emails == ("ed@bldgtyp.com", "john@bldgtyp.com", "owner@example.com")
+    assert status.metadata.access_warning is None
+
+
+def test_read_project_metadata_warns_when_otp_omits_required_bldgtyp_email(tmp_path: Path) -> None:
+    project = _make_project(tmp_path / "Project" / "04_Web", "project")
+    raw = yaml.safe_load((project / "project.yaml").read_text())
+    raw["publishing"]["access"] = {
+        "mode": "cloudflare_access_otp",
+        "allowed_emails": ["ed@bldgtyp.com", "owner@example.com"],
+    }
+    (project / "project.yaml").write_text(yaml.safe_dump(raw, sort_keys=False))
+
+    status = read_project_status(project, ManagerSettings(projects_root=tmp_path))
+
+    assert any("john@bldgtyp.com" in warning for warning in status.warnings)
+
+
+def test_read_project_metadata_warns_on_malformed_report_access(tmp_path: Path) -> None:
+    project = _make_project(tmp_path / "Project" / "04_Web", "project")
+    raw = yaml.safe_load((project / "project.yaml").read_text())
+    raw["publishing"]["access"] = {"mode": "cloudflare_access_otp", "allowed_emails": "owner@example.com"}
+    (project / "project.yaml").write_text(yaml.safe_dump(raw, sort_keys=False))
+
+    status = read_project_status(project, ManagerSettings(projects_root=tmp_path))
+
+    assert status.metadata.access_mode == "cloudflare_access_otp"
+    assert any("publishing.access.allowed_emails must be a list" in warning for warning in status.warnings)
+
+
+def test_set_project_access_writes_public_mode_and_preserves_unrelated_yaml(tmp_path: Path) -> None:
+    project = _make_project(tmp_path / "Project" / "04_Web", "project")
+    raw_before = yaml.safe_load((project / "project.yaml").read_text())
+
+    written = set_project_access(project, "public", ["owner@example.com"])
+
+    raw = yaml.safe_load(written.read_text())
+    assert raw["slug"] == raw_before["slug"]
+    assert raw["source_files"] == raw_before["source_files"]
+    assert raw["publishing"]["access"] == {"mode": "public", "allowed_emails": []}
+
+
+def test_set_project_access_preserves_unrelated_yaml_syntax(tmp_path: Path) -> None:
+    project = tmp_path / "Project" / "04_Web"
+    project.mkdir(parents=True)
+    project_yaml = project / "project.yaml"
+    project_yaml.write_text(
+        "# project comment\n"
+        "slug: project\n"
+        'project_title: "Quoted title"\n'
+        "source_files:\n"
+        "  # keep data comment\n"
+        "  data_dir: data\n"
+        "publishing:\n"
+        "  production_url: https://project.bldgtyp.com\n"
+    )
+
+    set_project_access(project, "cloudflare_access_otp", ["owner@example.com"])
+
+    text = project_yaml.read_text()
+    assert "# project comment" in text
+    assert "# keep data comment" in text
+    assert 'project_title: "Quoted title"' in text
+    assert "access:" in text
+
+
+def test_set_project_access_writes_otp_mode_with_required_bldgtyp_emails(tmp_path: Path) -> None:
+    project = _make_project(tmp_path / "Project" / "04_Web", "project")
+
+    written = set_project_access(project, "cloudflare_access_otp", [" Owner@Example.com ", "ed@bldgtyp.com"])
+
+    raw = yaml.safe_load(written.read_text())
+    assert raw["publishing"]["access"]["mode"] == "cloudflare_access_otp"
+    assert raw["publishing"]["access"]["allowed_emails"] == [
+        "owner@example.com",
+        *BTWR_REQUIRED_OTP_EMAILS,
+    ]
+
+
+def test_set_project_access_otp_mode_allows_only_required_bldgtyp_emails(tmp_path: Path) -> None:
+    project = _make_project(tmp_path / "Project" / "04_Web", "project")
+
+    written = set_project_access(project, "cloudflare_access_otp", [])
+
+    raw = yaml.safe_load(written.read_text())
+    assert raw["publishing"]["access"] == {
+        "mode": "cloudflare_access_otp",
+        "allowed_emails": list(BTWR_REQUIRED_OTP_EMAILS),
+    }
+
+
+def test_set_project_access_rejects_invalid_email(tmp_path: Path) -> None:
+    project = _make_project(tmp_path / "Project" / "04_Web", "project")
+
+    try:
+        set_project_access(project, "cloudflare_access_otp", ["not-an-email"])
+    except ValueError as exc:
+        assert "not valid" in str(exc)
     else:
         raise AssertionError("Expected ValueError")
 

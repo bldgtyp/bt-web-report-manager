@@ -12,6 +12,7 @@ from html import escape
 from pathlib import Path
 
 from bt_web_report_manager.models import ProjectStatus
+from bt_web_report_manager.projects import ACCESS_MODE_CLOUDFLARE_OTP, access_mode_label
 
 
 @dataclass(frozen=True)
@@ -233,6 +234,20 @@ def project_file_locations(project: ProjectStatus) -> list[FileLocation]:
             )
         )
     return locations
+
+
+def report_access_badge(project: ProjectStatus) -> str:
+    return access_mode_label(project.metadata.access_mode)
+
+
+def report_access_helper(project: ProjectStatus) -> str:
+    if project.metadata.access_mode == ACCESS_MODE_CLOUDFLARE_OTP:
+        return "Cloudflare email code required before viewing the rendered site."
+    return "Public URL, search indexing disabled."
+
+
+def report_access_warning() -> str:
+    return "This gates only the rendered Cloudflare site. The project GitHub repo remains public."
 
 
 def status_explanations(project: ProjectStatus) -> list[str]:

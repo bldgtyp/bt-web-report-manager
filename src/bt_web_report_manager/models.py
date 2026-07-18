@@ -44,6 +44,9 @@ class ProjectMetadata:
     phpp_path: Path | None
     data_dir: Path
     production_url: str | None
+    access_mode: str = "public"
+    access_allowed_emails: tuple[str, ...] = ()
+    access_warning: str | None = None
 
 
 @dataclass(frozen=True)

@@ -48,6 +48,7 @@ def test_build_new_project_plan_accepts_valid_inputs(tmp_path: Path) -> None:
     assert "bldgtyp-projects/bt-proj-2606-vandam" in checklist
     assert "content-only 04_Web" in checklist
     assert "Do not install Node dependencies" in checklist
+    assert "Report access: Public, noindex" in plan.summary_lines()
 
 
 def test_new_project_helpers_clean_paths_and_derive_names_from_project_folder() -> None:

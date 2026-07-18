@@ -29,6 +29,7 @@ dependencies = [
     "pyperclip>=1.8",
     "pypdfium2>=5.9.0",
     "pillow>=12.2.0",
+    "ruamel-yaml>=0.19.1",
 ]
 
 [project.optional-dependencies]

@@ -24,6 +24,9 @@ from bt_web_report_manager.ui.helpers import (
     project_file_locations,
     project_metrics,
     project_row,
+    report_access_badge,
+    report_access_helper,
+    report_access_warning,
     scrape_disabled_reason,
     selected_disabled_reason,
     status_explanations,
@@ -170,6 +173,24 @@ def test_project_file_locations_include_unconfigured_phpp(tmp_path: Path) -> Non
     assert locations["phpp"].path is None
 
 
+def test_report_access_helpers_label_public_and_otp_modes(tmp_path: Path) -> None:
+    project = _make_project(tmp_path, with_phpp=True)
+    settings = ManagerSettings(projects_root=tmp_path)
+    public_status = read_project_status(project, settings)
+
+    assert report_access_badge(public_status) == "Public, noindex"
+    assert "search indexing disabled" in report_access_helper(public_status)
+
+    raw = yaml.safe_load((project / "project.yaml").read_text())
+    raw["publishing"] = {"access": {"mode": "cloudflare_access_otp", "allowed_emails": ["owner@example.com"]}}
+    (project / "project.yaml").write_text(yaml.safe_dump(raw, sort_keys=False))
+    otp_status = read_project_status(project, settings)
+
+    assert report_access_badge(otp_status) == "Gated by Cloudflare OTP"
+    assert "email code" in report_access_helper(otp_status)
+    assert "GitHub repo remains public" in report_access_warning()
+
+
 def _make_project(tmp_path: Path, *, with_phpp: bool) -> Path:
     project = tmp_path / "Sample Project" / "04_Web"
     phpp = tmp_path / "Sample Project" / "07_PHPP" / "model.xlsx"
@@ -186,6 +207,7 @@ def _make_project(tmp_path: Path, *, with_phpp: bool) -> Path:
                 "building_name": "Building",
                 "phase": "Design",
                 "source_files": {"phpp_path": "../07_PHPP/model.xlsx", "data_dir": "data"},
+                "publishing": {"production_url": "https://sample.bldgtyp.com"},
             },
             sort_keys=False,
         )
