@@ -84,7 +84,8 @@ temporary folder.
   Routine workflow actions are intentionally kept off this screen.
 - **Project Workspace**: opens from a project row and focuses on one project.
   It shows breadcrumb navigation, project metadata, status chips, files and
-  locations, a scoped action log, and project state/status explanations.
+  locations, report access controls, a scoped action log, and project
+  state/status explanations.
 - **Action cluster**: grouped Run / Author / Publish / Process in the Project
   Workspace.
   - **Scrape**: `btwr scrape <project>` — writes a Dropbox lock first
@@ -100,6 +101,12 @@ temporary folder.
   - **Reveal in Finder**: `open -R <project>`
   - **Stop**: aborts the running subprocess (SIGTERM, then SIGKILL after 2s)
   - **Copy log**: copies the action log to the clipboard
+- **Report access**: edits `project.yaml` `publishing.access` without calling
+  Cloudflare directly. `Public` keeps the rendered URL public with noindex
+  defaults; `Cloudflare OTP` writes the allowed email list and automatically
+  includes Ed and John BLDGTYP emails. The deploy workflow applies or removes
+  the Cloudflare Access gate on the next push. The GitHub repo remains public
+  in v1.
 - **Action log** (right pane, bottom): timestamped stdout/stderr stream
   from the current subprocess.
 - **Lock handling**: mutating actions (Scrape, Dev preview, Open editor,
