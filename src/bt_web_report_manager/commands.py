@@ -350,7 +350,7 @@ SYNC_PER_PROJECT_DEPRECATION_MESSAGE = (
     "Bulk per-project workflow sync has been removed.\n\n"
     "Per-project repos are no longer mass-rewritten from the template's main "
     "branch — that mechanism allowed any template push to cascade into a "
-    "redeploy of every live project (see context/plans/2026-05-23/"
+    "redeploy of every live project (see planning/archive/dated/2026-05-23/"
     "renderer-deploy-architecture-restructure-plan.html).\n\n"
     "Replacements:\n"
     "  • Phase 1: `btwr pin <project> --renderer <sha> --schemas <sha>`\n"
