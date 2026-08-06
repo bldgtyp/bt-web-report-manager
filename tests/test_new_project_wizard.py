@@ -2,7 +2,7 @@
 
 The wizard's UI rendering now lives in ``ui/new_project.py`` (NiceGUI) and
 needs a browser to drive. The plan/checklist logic itself was already in
-``new_project.py`` (un-changed) and is the load-bearing part — these tests
+``new_project.py`` and is the load-bearing part — these tests
 exercise that surface directly.
 """
 
@@ -20,6 +20,7 @@ from bt_web_report_manager.new_project import (
 
 def test_build_new_project_plan_produces_summary_and_manual_checklist(tmp_path: Path) -> None:
     local_folder = tmp_path / "Project"
+    local_folder.mkdir()
     plan = build_new_project_plan(
         project_title="Project",
         project_number="2606",

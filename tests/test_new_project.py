@@ -9,6 +9,7 @@ from bt_web_report_manager.new_project import (
     build_new_project_plan,
     clean_path_text,
     default_slug_from_project_folder,
+    local_folder_validation_error,
     meaningful_existing_items,
     production_url_from_project_number,
     project_name_from_project_folder,
@@ -20,6 +21,7 @@ from bt_web_report_manager.new_project import (
 
 def test_build_new_project_plan_accepts_valid_inputs(tmp_path: Path) -> None:
     local_folder = tmp_path / "2606 29 Vandam St"
+    local_folder.mkdir()
     target = local_folder / "04_Web"
     phpp = local_folder / "07_PHPP" / "model.xlsx"
     phpp.parent.mkdir(parents=True)
@@ -65,6 +67,7 @@ def test_new_project_helpers_clean_paths_and_derive_names_from_project_folder() 
 
 def test_build_new_project_plan_sanitizes_slug_and_quoted_paths(tmp_path: Path) -> None:
     local_folder = tmp_path / "2606 29 Vandam St"
+    local_folder.mkdir()
     target = local_folder / "04_Web"
 
     plan = build_new_project_plan(
@@ -156,8 +159,35 @@ def test_build_new_project_plan_rejects_invalid_contract(tmp_path: Path) -> None
     assert "Project number must be exactly 4 digits" in message
 
 
+def test_local_project_folder_must_exist_and_be_a_directory(tmp_path: Path) -> None:
+    missing = tmp_path / "missing-project"
+    file_path = tmp_path / "project.txt"
+    file_path.write_text("not a folder")
+
+    assert local_folder_validation_error("") == "Choose the existing local project folder."
+    assert local_folder_validation_error(missing) == (
+        "Local project folder does not exist. Choose it with the folder button."
+    )
+    assert local_folder_validation_error(file_path) == "Local folder must be a directory."
+    assert local_folder_validation_error(tmp_path) is None
+
+    with pytest.raises(ValueError, match="Local project folder does not exist"):
+        build_new_project_plan(
+            project_title="Project",
+            project_number="2606",
+            project_name="vandam",
+            client_name=None,
+            building_name=None,
+            phase=None,
+            local_folder=missing,
+            target_web_path=missing / "04_Web",
+            phpp_path=None,
+        )
+
+
 def test_bootstrap_command_matches_planned_btwr_new_arguments(tmp_path: Path) -> None:
     local_folder = tmp_path / "Project"
+    local_folder.mkdir()
     plan = build_new_project_plan(
         project_title="Project",
         project_number="2606",
@@ -187,6 +217,7 @@ def test_bootstrap_command_matches_planned_btwr_new_arguments(tmp_path: Path) ->
 
 def test_bootstrap_command_passes_overwrite_flag(tmp_path: Path) -> None:
     local_folder = tmp_path / "Project"
+    local_folder.mkdir()
     plan = build_new_project_plan(
         project_title="Project",
         project_number="2606",

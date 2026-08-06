@@ -1,14 +1,11 @@
-# v0.0.23
+# v0.0.24
 
-Distribution-robustness release. No app behavior changes.
+New-project validation fix.
 
-- **Notarized, stapled DMG** is now built and published alongside the ZIP
-  (`bt-web-report-manager-0.0.23.dmg`). DMG drag-install avoids the
-  signature-corruption that third-party unarchivers cause when expanding the
-  ZIP, which produced spurious "is damaged and can't be opened" errors.
-- **`scripts/install-app.sh`** added: installs a release archive (ZIP or DMG)
-  with Apple's `ditto`, verifying signature + notarization before and after
-  install. Use this instead of double-clicking the ZIP.
-- Release tooling: `build-app.sh` builds + signs + notarizes + staples the DMG;
-  `make publish-release` uploads both the ZIP and the DMG.
-- See `docs/notarization-preflight.md` for the pre-publish verification gate.
+- The New Project wizard now requires an existing local Dropbox project folder
+  before Preview is available.
+- Empty, missing, and non-directory folder paths show precise inline errors;
+  the plan validator enforces the same contract before launching `btwr new`.
+- Folder paths entered by typing or paste update the derived project number,
+  short name, repository name, production URL, and `04_Web` path immediately.
+- Step headers no longer bypass the required Project info validation.

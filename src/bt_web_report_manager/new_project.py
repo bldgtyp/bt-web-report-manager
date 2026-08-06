@@ -193,6 +193,21 @@ def coerce_user_path(value: Path | str) -> Path:
     return Path(clean_path_text(str(value))).expanduser()
 
 
+def local_folder_validation_error(value: Path | str | None) -> str | None:
+    """Return the user-facing validation error for a local project folder."""
+    cleaned = clean_path_text(str(value)) if value is not None else ""
+    if not cleaned:
+        return "Choose the existing local project folder."
+    folder = Path(cleaned).expanduser()
+    if not folder.is_absolute():
+        return "Local folder must be an absolute path."
+    if not folder.exists():
+        return "Local project folder does not exist. Choose it with the folder button."
+    if not folder.is_dir():
+        return "Local folder must be a directory."
+    return None
+
+
 def sanitize_slug(value: str | None) -> str:
     text = (value or "").strip().lower()
     text = re.sub(r"[^a-z0-9]+", "-", text)
@@ -298,10 +313,9 @@ def validate_new_project_plan(plan: NewProjectPlan) -> list[str]:
         errors.append("Project name must be lowercase kebab-case, using only a-z, 0-9, and single hyphens.")
     if not SLUG_RE.fullmatch(plan.slug):
         errors.append("Slug must be derived as project-<number>.")
-    if not plan.local_folder.is_absolute():
-        errors.append("Local folder must be an absolute path.")
-    elif plan.local_folder.exists() and not plan.local_folder.is_dir():
-        errors.append("Local folder already exists and is not a directory.")
+    local_folder_error = local_folder_validation_error(plan.local_folder)
+    if local_folder_error:
+        errors.append(local_folder_error)
     if not plan.target_web_path.is_absolute():
         errors.append("Target 04_Web path must be an absolute path.")
     elif plan.target_web_path.exists() and not plan.target_web_path.is_dir():

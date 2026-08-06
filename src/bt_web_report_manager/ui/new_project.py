@@ -23,6 +23,7 @@ from bt_web_report_manager.new_project import (
     bootstrap_command_status,
     build_new_project_plan,
     clean_path_text,
+    local_folder_validation_error,
     meaningful_existing_items,
     production_url_from_project_number,
     project_name_from_project_folder,
@@ -62,6 +63,7 @@ async def open_new_project_wizard(
         info_fields: dict[str, Any] = {}
         preview_md: list[Any] = []
         build_log: list[Any] = []
+        preview_buttons: list[Any] = []
         auto_fields = {"number": True, "name": True, "target": True}
         programmatic_update = {"active": False}
 
@@ -170,8 +172,17 @@ async def open_new_project_wizard(
             _set_field("repo_name", repo_name_from_number_name(number, name))
             _set_field("production_url", production_url_from_project_number(number))
 
-        def _sync_from_local_folder() -> None:
-            local = _normalize_path_field("local_folder")
+        def _sync_from_local_folder(*, local_folder_override: str | None = None) -> None:
+            # During update:model-value, NiceGUI has not yet written the new text
+            # into the field object. Use the event payload when supplied so pasted
+            # paths update validation and derived fields without lagging one change.
+            local = (
+                clean_path_text(local_folder_override)
+                if local_folder_override is not None
+                else _normalize_path_field("local_folder")
+            )
+            if preview_buttons:
+                preview_buttons[0].set_enabled(local_folder_validation_error(local) is None)
             if not local:
                 trace_event("ui.new_project.sync_from_local_folder.skipped_empty")
                 return
@@ -258,26 +269,35 @@ async def open_new_project_wizard(
             trace_event("ui.new_project.local_folder_picker.clicked")
             await _choose_directory("local_folder")
 
-        with ui.stepper().props("flat header-nav animated").classes("w-full mt-2") as stepper:
+        with ui.stepper().props("flat animated").classes("w-full mt-2") as stepper:
             # ---- Step 1: Info
             with ui.step("info", title="Project info", icon="edit_note"):
                 with ui.column().classes("w-full gap-3 mt-2"):
                     with ui.row().classes("w-full gap-2 items-center"):
                         info_fields["local_folder"] = (
-                            ui.input("Local folder", value=str(state.settings.projects_root / "Project Name"))
+                            ui.input(
+                                "Local project folder *",
+                                placeholder="Required — choose the existing Dropbox project folder",
+                                validation=local_folder_validation_error,
+                            )
                             .props("outlined dense")
                             .classes("flex-1")
                             .tooltip(
                                 "Absolute path to the BT project folder. Paste Finder Copy as Pathname values directly; enclosing quotes are stripped."
                             )
                         )
-                        ui.button(icon="folder_open", on_click=_choose_local_directory, color=None).props(
-                            "flat unelevated"
-                        ).classes("action-btn icon-only").tooltip("Choose local project folder")
+                        ui.button(
+                            "Choose folder", icon="folder_open", on_click=_choose_local_directory, color=None
+                        ).props("flat unelevated").classes("action-btn").tooltip("Choose local project folder")
+                    info_fields["local_folder"].validate()
+                    ui.label(
+                        "Required. Select the existing Dropbox project folder first; the project number, short name, "
+                        "and 04_Web path are derived from it."
+                    ).style("font-size: 12px; color: var(--text-2); margin-top: -8px;")
                     info_fields["target_web_path"] = (
                         ui.input(
                             "Target 04_Web path",
-                            value=str(state.settings.projects_root / "Project Name" / "04_Web"),
+                            placeholder="Set automatically from the local project folder",
                         )
                         .props("outlined dense")
                         .classes("w-full")
@@ -386,13 +406,13 @@ async def open_new_project_wizard(
                             _set_field("project_name", name)
                             _sync_derived_names()
 
-                    def _on_local_folder_change() -> None:
+                    def _on_local_folder_change(new_value: str) -> None:
                         if not programmatic_update["active"]:
                             trace_event(
                                 "ui.new_project.local_folder.user_changed",
-                                value=info_fields["local_folder"].value or "",
+                                value=new_value,
                             )
-                            _sync_from_local_folder()
+                            _sync_from_local_folder(local_folder_override=new_value)
 
                     def _mark_manual(name: str) -> None:
                         if not programmatic_update["active"]:
@@ -406,7 +426,9 @@ async def open_new_project_wizard(
                         "update:model-value", lambda e: _on_project_name_change(_event_value(e.args))
                     )
                     info_fields["project_name"].on("blur", lambda _e: _on_project_name_blur())
-                    info_fields["local_folder"].on("update:model-value", lambda _e: _on_local_folder_change())
+                    info_fields["local_folder"].on(
+                        "update:model-value", lambda e: _on_local_folder_change(_event_value(e.args))
+                    )
                     info_fields["target_web_path"].on("update:model-value", lambda _e: _mark_manual("target"))
                     info_fields["phpp_path"].on("update:model-value", lambda _e: _normalize_path_field("phpp_path"))
                     _sync_from_local_folder()
@@ -419,6 +441,18 @@ async def open_new_project_wizard(
                             values={name: field.value for name, field in info_fields.items()},
                             auto_fields=auto_fields,
                         )
+                        local_folder_input = info_fields["local_folder"]
+                        if not local_folder_input.validate():
+                            trace_event(
+                                "ui.new_project.preview.blocked_local_folder",
+                                value=local_folder_input.value or "",
+                                error=local_folder_input.error,
+                            )
+                            ui.notify(
+                                local_folder_input.error or "Choose the existing local project folder.",
+                                type="warning",
+                            )
+                            return
                         try:
                             overwrite = await _confirm_overwrite_if_needed()
                             if (
@@ -445,8 +479,11 @@ async def open_new_project_wizard(
                     ui.button("Cancel", on_click=_close, color=None).props("flat unelevated no-caps").classes(
                         "action-btn"
                     )
-                    ui.button("Preview →", on_click=_go_preview, color=None).props("flat unelevated no-caps").classes(
-                        "action-btn is-warning"
+                    preview_buttons.append(
+                        ui.button("Preview →", on_click=_go_preview, color=None)
+                        .props("flat unelevated no-caps")
+                        .classes("action-btn is-warning")
+                        .disable()
                     )
 
             # ---- Step 2: Preview
