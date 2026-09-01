@@ -45,7 +45,7 @@ async def test_handle_upload_stages_current_nicegui_file_event(
     logs: list[str] = []
     seen: dict[str, Any] = {}
 
-    def fake_convert_pdf(pdf_path: Path, output_dir: Path) -> PdfConversionResult:
+    async def fake_convert_pdf_async(pdf_path: Path, output_dir: Path) -> PdfConversionResult:
         seen["pdf_name"] = pdf_path.name
         seen["pdf_data"] = pdf_path.read_bytes()
         seen["output_dir"] = output_dir
@@ -54,12 +54,12 @@ async def test_handle_upload_stages_current_nicegui_file_event(
     def fake_log_result(result: PdfConversionResult, log: Any) -> None:
         log(f"OK: {result.source.name}")
 
-    monkeypatch.setattr(image_processor, "convert_pdf", fake_convert_pdf)
+    monkeypatch.setattr(image_processor, "convert_pdf_async", fake_convert_pdf_async)
     monkeypatch.setattr(image_processor, "_log_result", fake_log_result)
 
     await image_processor._handle_upload(event, tmp_path, logs.append)
 
-    assert logs == ["Processing hero-full.pdf...", "OK: hero-full.pdf"]
+    assert logs == ["Queued hero-full.pdf", "OK: hero-full.pdf"]
     assert seen == {
         "pdf_name": "hero-full.pdf",
         "pdf_data": b"staged-pdf",

@@ -3,6 +3,12 @@
 Generic utility: the user drops one or more PDFs, each is rendered into
 a full-resolution and a web-optimized PNG, and both are written to
 ``~/Desktop/bt-web-report-images/``. Not scoped to any project.
+
+NiceGUI fires ``on_upload`` once per dropped file, so a multi-file drop runs
+several handlers at once. Conversions therefore go through
+``convert_pdf_async``, which queues them onto the single PDFium worker thread;
+see ``image_processing`` for why concurrent PDFium calls crash the process.
+The log says ``Queued`` rather than ``Processing`` because that queue is real.
 """
 
 from __future__ import annotations
@@ -18,7 +24,7 @@ from nicegui import ui
 
 from bt_web_report_manager.image_processing import (
     PdfConversionResult,
-    convert_pdf,
+    convert_pdf_async,
     default_output_dir,
 )
 from bt_web_report_manager.trace import trace_event, trace_exception
@@ -96,7 +102,7 @@ async def _handle_upload(event: Any, output_dir: Path, log: Any) -> None:
         trace_event("ui.image_processor.skip_non_pdf", name=name)
         return
 
-    log(f"Processing {name}...")
+    log(f"Queued {name}")
     trace_event("ui.image_processor.upload_received", name=name)
 
     try:
@@ -112,7 +118,7 @@ async def _handle_upload(event: Any, output_dir: Path, log: Any) -> None:
     staged = tmp_dir / name
     try:
         await asyncio.to_thread(staged.write_bytes, data)
-        result = await asyncio.to_thread(convert_pdf, staged, output_dir)
+        result = await convert_pdf_async(staged, output_dir)
     finally:
         try:
             staged.unlink(missing_ok=True)
