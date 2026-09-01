@@ -1,11 +1,14 @@
-# v0.0.24
+# v0.0.25
 
-New-project validation fix.
+PDF -> PNG crash fix.
 
-- The New Project wizard now requires an existing local Dropbox project folder
-  before Preview is available.
-- Empty, missing, and non-directory folder paths show precise inline errors;
-  the plan validator enforces the same contract before launching `btwr new`.
-- Folder paths entered by typing or paste update the derived project number,
-  short name, repository name, production URL, and `04_Web` path immediately.
-- Step headers no longer bypass the required Project info validation.
+- Dropping more than one PDF on the **PDF -> PNG** modal no longer quits the
+  Manager. NiceGUI raises one upload handler per file, and the converter used
+  to run each on its own thread; PDFium is not thread-safe, so concurrent
+  renders corrupted its heap and aborted the process before any PNG was
+  written.
+- Conversions now queue onto a single dedicated PDFium worker thread. A
+  multi-file drop processes in order rather than in parallel, at no measurable
+  cost: six floor plans convert in about 1.5 seconds either way.
+- The action log now reads `Queued <file>` on arrival, so a file waiting its
+  turn does not look like one that stalled mid-render.
