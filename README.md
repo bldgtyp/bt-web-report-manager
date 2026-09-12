@@ -78,7 +78,9 @@ temporary folder.
 - **PDF → PNG**: a project-independent drag-and-drop modal. Each dropped PDF
   renders one PNG pair per page into `~/Desktop/bt-web-report-images/` —
   `<stem>.full.png` at 300 DPI and `<stem>.optimized.png` at 144 DPI with
-  palette quantization. Conversions run one at a time on a single worker
+  lossless PNG compression and preserved colors (including solar-radiation legends).
+  Previously generated palette PNGs must be regenerated from their PDFs to restore
+  lost colors. Conversions run one at a time on a single worker
   thread because PDFium is not thread-safe; a multi-file drop queues rather
   than rendering in parallel.
 - **Project Index**: the default screen for portfolio scanning, setup, and

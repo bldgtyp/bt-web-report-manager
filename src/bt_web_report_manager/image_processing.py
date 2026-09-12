@@ -8,8 +8,9 @@ produces one pair of PNGs per page:
 - Multi-page PDFs: ``<stem>-page<N>.full.png`` and ``<stem>-page<N>.optimized.png``.
 
 ``full`` renders at 300 DPI (print-quality). ``optimized`` renders at
-144 DPI (~2x retina) and is re-saved through Pillow with ``optimize=True``
-plus an 8-bit palette quantization for smaller web payloads.
+144 DPI (~2x retina) with lossless PNG compression (``optimize=True``).
+It retains the rendered colors: palette quantization can distort small
+color legends in otherwise mostly grayscale drawings, such as solar studies.
 
 **PDFium is not thread-safe** (upstream: "PDFium is inherently not
 thread-safe"), and its global state is shared across ``PdfDocument``
@@ -100,9 +101,7 @@ def convert_pdf(pdf_path: Path, output_dir: Path) -> PdfConversionResult:
 
                 optimized_image = _render_page(page, OPTIMIZED_DPI)
                 optimized_target = output_dir / f"{stem}.optimized.png"
-                optimized_image.convert("P", palette=Image.Palette.ADAPTIVE).save(
-                    optimized_target, format="PNG", optimize=True
-                )
+                optimized_image.save(optimized_target, format="PNG", optimize=True)
                 optimized_paths.append(optimized_target)
         except Exception as exc:
             return PdfConversionResult(

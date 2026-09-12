@@ -379,7 +379,7 @@ def bootstrap_command_status(settings: ManagerSettings) -> BootstrapCommandStatu
             available=False,
             executable=executable,
             resolved_path=resolved,
-            message=str(exc),
+            message=_missing_interpreter_message(resolved, exc) or str(exc),
         )
     if result.returncode != 0:
         trace_event(
@@ -423,6 +423,33 @@ def bootstrap_command_status(settings: ManagerSettings) -> BootstrapCommandStatu
     )
     trace_event("new_project.bootstrap_status.available", executable=executable, resolved=resolved)
     return status
+
+
+def _missing_interpreter_message(resolved: str, exc: BaseException) -> str | None:
+    """Explain an ENOENT raised while exec-ing a script that exists on disk.
+
+    That combination means the shebang interpreter is missing, which is what a
+    venv synced from another machine looks like: the scripts arrive intact but
+    point at a python under the other user's home directory.
+    """
+    if not isinstance(exc, FileNotFoundError):
+        return None
+    script = Path(resolved)
+    if not script.is_file():
+        return None
+    try:
+        first_line = script.read_text(errors="replace").splitlines()[0]
+    except (OSError, IndexError):
+        return None
+    if not first_line.startswith("#!"):
+        return None
+    interpreter = first_line[2:].strip().split(" ")[0]
+    if not interpreter or Path(interpreter).exists():
+        return None
+    return (
+        f"{script} exists but its shebang interpreter {interpreter} does not. "
+        "The venv was probably built on another machine; rebuild it with uv sync."
+    )
 
 
 def bootstrap_command(plan: NewProjectPlan, settings: ManagerSettings) -> CommandSpec:

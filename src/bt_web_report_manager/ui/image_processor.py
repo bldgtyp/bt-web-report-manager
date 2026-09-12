@@ -49,7 +49,7 @@ async def open_image_processor_dialog() -> None:
         ui.label("PDF -> PNG").classes("dialog-title")
         ui.label(
             "Drop one or more PDFs below. Each page is rendered to a full-resolution "
-            "PNG (300 DPI) and a web-optimized PNG (144 DPI, palette + optimize)."
+            "PNG (300 DPI) and a web-optimized PNG (144 DPI, full color)."
         ).classes("text-sm").style("color: var(--text-2); line-height: 1.5;")
 
         ui.label(f"Output folder: {output_dir}").style(

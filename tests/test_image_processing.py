@@ -15,6 +15,7 @@ from typing import Any
 
 import pypdfium2 as pdfium  # type: ignore[import-untyped]
 import pytest
+from PIL import Image
 
 from bt_web_report_manager import image_processing
 
@@ -98,3 +99,24 @@ def test_convert_pdf_writes_a_full_and_optimized_png(one_page_pdf: Path, tmp_pat
     assert result.full_paths == (out / "probe.full.png",)
     assert result.optimized_paths == (out / "probe.optimized.png",)
     assert all(path.stat().st_size > 0 for path in result.full_paths + result.optimized_paths)
+
+
+def test_optimized_png_preserves_small_color_ramp(
+    monkeypatch: pytest.MonkeyPatch, one_page_pdf: Path, tmp_path: Path
+) -> None:
+    # A mostly grayscale drawing with a small color legend needs more than
+    # 256 colors. Palette reduction must not merge the legend's distinct values.
+    drawing = Image.new("RGB", (256, 256))
+    drawing.putdata([(x, x, x) for y in range(256) for x in range(256)])
+    for x in range(256):
+        drawing.putpixel((x, 0), (255 - x, x, 128))
+
+    def render_page(page: Any, dpi: int) -> Image.Image:
+        return drawing.copy()
+
+    monkeypatch.setattr(image_processing, "_render_page", render_page)
+    result = image_processing.convert_pdf(one_page_pdf, tmp_path / "out")
+
+    assert result.ok
+    with Image.open(result.optimized_paths[0]) as optimized:
+        assert optimized.convert("RGB").tobytes() == drawing.tobytes()

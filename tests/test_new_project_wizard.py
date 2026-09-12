@@ -51,3 +51,20 @@ def test_bootstrap_command_available_returns_false_for_missing_btwr(tmp_path: Pa
     status = bootstrap_command_status(settings)
     assert not status.available
     assert "not found" in status.message
+
+
+def test_bootstrap_command_status_reports_missing_shebang_interpreter(tmp_path: Path) -> None:
+    # A venv synced from another machine keeps its scripts but their shebang
+    # points at a python that does not exist here. exec then fails with ENOENT
+    # naming the script itself, which reads as if btwr were absent.
+    missing_python = tmp_path / "other-machine" / ".venv" / "bin" / "python"
+    script = tmp_path / "btwr"
+    script.write_text(f"#!{missing_python}\nimport sys\n")
+    script.chmod(0o755)
+    settings = ManagerSettings(projects_root=tmp_path, btwr_executable=str(script))
+
+    status = bootstrap_command_status(settings)
+
+    assert not status.available
+    assert str(missing_python) in status.message
+    assert "interpreter" in status.message
