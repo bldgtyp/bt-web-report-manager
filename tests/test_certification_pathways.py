@@ -171,10 +171,10 @@ def test_set_and_clear_certification_pathways_preserve_comments_and_other_keys(t
     assert 'project_title: "Quoted title"' in text_after_clear
 
 
-def test_default_ids_match_template_typescript_when_present() -> None:
-    source = Path(__file__).parents[2] / "bt-web-report-template" / "src" / "data" / "certification-pathways.ts"
+def test_default_ids_match_template_when_present() -> None:
+    source = Path(__file__).parents[2] / "bt-web-report-template" / "src" / "data" / "certification-pathway-selection.mjs"
     if not source.exists():
-        pytest.skip("Template TypeScript catalog module is not present in this checkout.")
+        pytest.skip("Template default pathway module is not present in this checkout.")
     match = re.search(r"DEFAULT_CERTIFICATION_PATHWAY_IDS\s*=\s*\[([^\]]+)]", source.read_text(), re.DOTALL)
     if match is None:
         pytest.fail(f"Could not find the template default pathway list in {source}")
