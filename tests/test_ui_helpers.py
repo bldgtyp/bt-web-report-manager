@@ -13,12 +13,15 @@ from pathlib import Path
 
 import yaml
 
+from bt_web_report_manager.certification_pathways import CatalogPathway
 from bt_web_report_manager.models import ManagerSettings
 from bt_web_report_manager.projects import read_project_status
 from bt_web_report_manager.ui.helpers import (
     action_card_states,
     badge_kind,
     badge_tooltip,
+    certification_pathways_badge,
+    certification_pathways_display,
     commit_disabled_reason,
     open_editor_disabled_reason,
     project_file_locations,
@@ -189,6 +192,37 @@ def test_report_access_helpers_label_public_and_otp_modes(tmp_path: Path) -> Non
     assert report_access_badge(otp_status) == "Gated by Cloudflare OTP"
     assert "email code" in report_access_helper(otp_status)
     assert "GitHub repo remains public" in report_access_warning()
+
+
+def test_certification_pathway_helpers_label_default_and_unknown_ids(tmp_path: Path) -> None:
+    project = _make_project(tmp_path, with_phpp=True)
+    settings = ManagerSettings(projects_root=tmp_path)
+    default_status = read_project_status(project, settings)
+    catalog = [
+        CatalogPathway("phi-classic", "PHI Classic"),
+        CatalogPathway("phi-leb", "PHI Low Energy Building"),
+        CatalogPathway("phius-core-2024", "Phius CORE 2024"),
+        CatalogPathway("phius-zero-2024", "Phius ZERO 2024"),
+    ]
+
+    assert certification_pathways_badge(default_status) == "Default"
+    assert [item.title for item in certification_pathways_display(default_status, catalog)] == [
+        pathway.title for pathway in catalog
+    ]
+
+    raw = yaml.safe_load((project / "project.yaml").read_text())
+    raw["certification_pathways"] = {
+        "show": ["future-pathway", "phi-classic"],
+        "recommended": "future-pathway",
+    }
+    (project / "project.yaml").write_text(yaml.safe_dump(raw, sort_keys=False))
+    selected_status = read_project_status(project, settings)
+    display = certification_pathways_display(selected_status, catalog)
+
+    assert certification_pathways_badge(selected_status) == "2 selected"
+    assert display[0].title == "future-pathway"
+    assert display[0].unknown
+    assert display[0].recommended
 
 
 def _make_project(tmp_path: Path, *, with_phpp: bool) -> Path:

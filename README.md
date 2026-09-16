@@ -115,6 +115,9 @@ temporary folder.
   includes Ed and John BLDGTYP emails. The deploy workflow applies or removes
   the Cloudflare Access gate on the next push. The GitHub repo remains public
   in v1.
+- **Certification pathways**: edits the ordered `project.yaml`
+  `certification_pathways.show` list and optional `recommended` ID from the
+  renderer-owned catalog. Removing the block restores the renderer default.
 - **Action log** (right pane, bottom): timestamped stdout/stderr stream
   from the current subprocess.
 - **Lock handling**: mutating actions (Scrape, Dev preview, Open editor,

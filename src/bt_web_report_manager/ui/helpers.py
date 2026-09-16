@@ -11,6 +11,7 @@ from datetime import datetime
 from html import escape
 from pathlib import Path
 
+from bt_web_report_manager.certification_pathways import CatalogPathway, DEFAULT_CERTIFICATION_PATHWAY_IDS
 from bt_web_report_manager.models import ProjectStatus
 from bt_web_report_manager.projects import ACCESS_MODE_CLOUDFLARE_OTP, access_mode_label
 
@@ -38,6 +39,14 @@ class FileLocation:
     value: str
     path: Path | None = None
     url: str | None = None
+
+
+@dataclass(frozen=True)
+class CertificationPathwayDisplay:
+    id: str
+    title: str
+    recommended: bool
+    unknown: bool
 
 
 def format_dt(value: datetime | None) -> str:
@@ -248,6 +257,29 @@ def report_access_helper(project: ProjectStatus) -> str:
 
 def report_access_warning() -> str:
     return "This gates only the rendered Cloudflare site. The project GitHub repo remains public."
+
+
+def certification_pathways_badge(project: ProjectStatus) -> str:
+    show = project.metadata.certification_pathways_show
+    return "Default" if show is None else f"{len(show)} selected"
+
+
+def certification_pathways_display(
+    project: ProjectStatus, catalog: list[CatalogPathway] | tuple[CatalogPathway, ...]
+) -> list[CertificationPathwayDisplay]:
+    configured_show = project.metadata.certification_pathways_show
+    show = DEFAULT_CERTIFICATION_PATHWAY_IDS if configured_show is None else configured_show
+    titles = {pathway.id: pathway.title for pathway in catalog}
+    recommended = project.metadata.certification_pathways_recommended
+    return [
+        CertificationPathwayDisplay(
+            id=pathway_id,
+            title=titles.get(pathway_id, pathway_id),
+            recommended=pathway_id == recommended,
+            unknown=pathway_id not in titles,
+        )
+        for pathway_id in show
+    ]
 
 
 def status_explanations(project: ProjectStatus) -> list[str]:
