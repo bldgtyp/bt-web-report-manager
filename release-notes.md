@@ -1,14 +1,13 @@
-# v0.0.25
+# v0.0.26
 
-PDF -> PNG crash fix.
+Certification pathway selection.
 
-- Dropping more than one PDF on the **PDF -> PNG** modal no longer quits the
-  Manager. NiceGUI raises one upload handler per file, and the converter used
-  to run each on its own thread; PDFium is not thread-safe, so concurrent
-  renders corrupted its heap and aborted the process before any PNG was
-  written.
-- Conversions now queue onto a single dedicated PDFium worker thread. A
-  multi-file drop processes in order rather than in parallel, at no measurable
-  cost: six floor plans convert in about 1.5 seconds either way.
-- The action log now reads `Queued <file>` on arrival, so a file waiting its
-  turn does not look like one that stalled mid-render.
+- The Project Workspace now includes a Certification pathways panel and edit
+  dialog. Choose which pathways appear in the report, set their order, and
+  optionally mark one as recommended.
+- Saving writes the ordered `certification_pathways.show` list and optional
+  `certification_pathways.recommended` ID to `project.yaml`. The Use default
+  action removes the block so the renderer uses its standard pathway set.
+- The picker reads IDs and titles from the renderer template catalog. An older
+  renderer runtime without that catalog shows a clear error in the dialog
+  instead of crashing the Manager.

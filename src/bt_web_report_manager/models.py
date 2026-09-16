@@ -47,6 +47,8 @@ class ProjectMetadata:
     access_mode: str = "public"
     access_allowed_emails: tuple[str, ...] = ()
     access_warning: str | None = None
+    certification_pathways_show: tuple[str, ...] | None = None
+    certification_pathways_recommended: str | None = None
 
 
 @dataclass(frozen=True)

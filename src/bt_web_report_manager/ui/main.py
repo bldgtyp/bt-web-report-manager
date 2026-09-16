@@ -20,6 +20,13 @@ from nicegui import app, ui
 import pyperclip  # type: ignore[import-untyped]
 
 from bt_web_report_manager import __version__
+from bt_web_report_manager.certification_pathways import (
+    CatalogPathway,
+    CertificationCatalogError,
+    DEFAULT_CERTIFICATION_PATHWAY_IDS,
+    load_certification_catalog,
+    validate_certification_pathways,
+)
 from bt_web_report_manager.commands import (
     SYNC_PER_PROJECT_DEPRECATION_MESSAGE,
     CommandSpec,
@@ -53,7 +60,9 @@ from bt_web_report_manager.projects import (
     ACCESS_MODE_CLOUDFLARE_OTP,
     ACCESS_MODE_PUBLIC,
     access_mode_label,
+    clear_certification_pathways,
     normalize_access_emails,
+    set_certification_pathways,
     set_project_access,
     set_project_phpp_path,
     validate_project_web_root,
@@ -77,6 +86,8 @@ from bt_web_report_manager.ui.helpers import (
     action_card_states,
     badge_kind,
     badge_tooltip,
+    certification_pathways_badge,
+    certification_pathways_display,
     commit_disabled_reason,
     format_dt,
     git_label,
@@ -578,6 +589,7 @@ def build_page(state: ManagerState) -> None:
                 with ui.element("div").classes("workspace-lower-grid"):
                     render_files_locations(project)
                     render_report_access(project)
+                    render_certification_pathways(project)
                     render_action_log(project)
                     render_status_notes(project)
 
@@ -782,6 +794,212 @@ def build_page(state: ManagerState) -> None:
                 )
         await dialog
         trace_event("ui.report_access.closed", project=project.project_path)
+
+    def _load_certification_catalog_for_ui() -> tuple[list[CatalogPathway], str | None]:
+        try:
+            return load_certification_catalog(state.settings.renderer_source), None
+        except CertificationCatalogError as exc:
+            trace_exception("ui.certification_pathways.catalog_failed", exc)
+            return [], str(exc)
+
+    def render_certification_pathways(project: ProjectStatus) -> None:
+        catalog, catalog_error = _load_certification_catalog_for_ui()
+        with ui.element("div").classes("info-panel certification-pathways-panel"):
+            with ui.element("div").classes("panel-header"):
+                ui.label("Certification pathways").classes("panel-title")
+                with ui.element("span").classes("chip chip-neutral"):
+                    ui.label(certification_pathways_badge(project))
+                ui.button(
+                    "Edit",
+                    icon="tune",
+                    color=None,
+                    on_click=lambda: ui.timer(0, lambda: open_certification_pathways_dialog(project), once=True),
+                ).props("flat dense unelevated no-caps").classes("panel-tool")
+            for pathway in certification_pathways_display(project, catalog):
+                with ui.row().classes("w-full items-center gap-2").style("min-height: 26px;"):
+                    label = ui.label(pathway.title).classes("file-value")
+                    if pathway.unknown:
+                        label.style("color: var(--warning);")
+                        ui.icon("warning", color="warning").props("size=16px").tooltip(
+                            f"Unknown certification pathway ID: {pathway.id}"
+                        )
+                    if pathway.recommended:
+                        with ui.element("span").classes("chip chip-info"):
+                            ui.label("Recommended")
+            if catalog_error:
+                ui.label(catalog_error).style(
+                    "font-size: 12px; color: var(--warning); line-height: 1.45; margin-top: 8px;"
+                )
+
+    async def open_certification_pathways_dialog(project: ProjectStatus) -> None:
+        trace_event(
+            "ui.certification_pathways.open",
+            project=project.project_path,
+            slug=project.metadata.slug,
+            show=project.metadata.certification_pathways_show,
+            recommended=project.metadata.certification_pathways_recommended,
+        )
+        catalog, catalog_error = _load_certification_catalog_for_ui()
+        configured_show = project.metadata.certification_pathways_show
+        selected = list(DEFAULT_CERTIFICATION_PATHWAY_IDS if configured_show is None else configured_show)
+        recommended_ref = {"value": project.metadata.certification_pathways_recommended}
+        dialog = ui.dialog()
+
+        async def _save() -> None:
+            recommended = recommended_ref["value"]
+            trace_event(
+                "ui.certification_pathways.save.clicked",
+                project=project.project_path,
+                slug=project.metadata.slug,
+                show=selected,
+                recommended=recommended,
+            )
+            try:
+                validate_certification_pathways(selected, recommended, catalog)
+            except ValueError as exc:
+                trace_exception("ui.certification_pathways.save.validation_failed", exc, project=project.project_path)
+                ui.notify(str(exc), type="warning")
+                return
+            if not await prepare_mutating_action(project, refresh_after_lock=False):
+                return
+            try:
+                await asyncio.to_thread(
+                    set_certification_pathways,
+                    project.project_path,
+                    selected,
+                    recommended,
+                    catalog,
+                )
+            except ValueError as exc:
+                trace_exception("ui.certification_pathways.save.failed", exc, project=project.project_path)
+                log_message(f"Certification pathways were not changed: {exc}")
+                ui.notify(str(exc), type="negative")
+                return
+            log_message(f"Certification pathways saved for {project.metadata.slug}: {len(selected)} selected.")
+            trace_event("ui.certification_pathways.save.done", project=project.project_path, slug=project.metadata.slug)
+            dialog.close()
+            await refresh_projects(project.project_path)
+
+        async def _use_default() -> None:
+            trace_event(
+                "ui.certification_pathways.default.clicked", project=project.project_path, slug=project.metadata.slug
+            )
+            if not await prepare_mutating_action(project, refresh_after_lock=False):
+                return
+            try:
+                await asyncio.to_thread(clear_certification_pathways, project.project_path)
+            except ValueError as exc:
+                trace_exception("ui.certification_pathways.default.failed", exc, project=project.project_path)
+                log_message(f"Certification pathways were not changed: {exc}")
+                ui.notify(str(exc), type="negative")
+                return
+            log_message(f"Certification pathways reset to the renderer default for {project.metadata.slug}.")
+            trace_event("ui.certification_pathways.default.done", project=project.project_path)
+            dialog.close()
+            await refresh_projects(project.project_path)
+
+        def _toggle(pathway_id: str, checked: bool) -> None:
+            if checked and pathway_id not in selected:
+                selected.append(pathway_id)
+            elif not checked and pathway_id in selected:
+                selected.remove(pathway_id)
+                if recommended_ref["value"] == pathway_id:
+                    recommended_ref["value"] = None
+            _pathway_rows.refresh()
+
+        def _move(pathway_id: str, offset: int) -> None:
+            index = selected.index(pathway_id)
+            target = index + offset
+            if 0 <= target < len(selected):
+                selected[index], selected[target] = selected[target], selected[index]
+                _pathway_rows.refresh()
+
+        @ui.refreshable
+        def _pathway_rows() -> None:
+            catalog_by_id = {pathway.id: pathway for pathway in catalog}
+            ordered_ids = [*selected, *(pathway.id for pathway in catalog if pathway.id not in selected)]
+            for pathway_id in ordered_ids:
+                pathway = catalog_by_id.get(pathway_id)
+                checked = pathway_id in selected
+                title = pathway.title if pathway is not None else pathway_id
+                with (
+                    ui.row()
+                    .classes("w-full items-center gap-2")
+                    .style("border-top: 1px solid var(--border); padding: 8px 0;")
+                ):
+                    ui.checkbox(
+                        title,
+                        value=checked,
+                        on_change=lambda event, item_id=pathway_id: _toggle(item_id, bool(event.value)),
+                    ).classes("flex-1")
+                    if pathway is None:
+                        ui.icon("warning", color="warning").props("size=16px").tooltip(
+                            f"Unknown certification pathway ID: {pathway_id}"
+                        )
+                    if checked:
+                        index = selected.index(pathway_id)
+                        up = (
+                            ui.button(
+                                icon="arrow_upward",
+                                color=None,
+                                on_click=lambda item_id=pathway_id: _move(item_id, -1),
+                            )
+                            .props("flat dense round")
+                            .classes("icon-tool")
+                        )
+                        down = (
+                            ui.button(
+                                icon="arrow_downward",
+                                color=None,
+                                on_click=lambda item_id=pathway_id: _move(item_id, 1),
+                            )
+                            .props("flat dense round")
+                            .classes("icon-tool")
+                        )
+                        if index == 0:
+                            up.props("disable")
+                        if index == len(selected) - 1:
+                            down.props("disable")
+            ui.label("Recommended").classes("section-label").style("margin-top: 12px;")
+            options = {
+                "": "None",
+                **{
+                    pathway_id: catalog_by_id[pathway_id].title
+                    for pathway_id in selected
+                    if pathway_id in catalog_by_id
+                },
+            }
+            recommended_value = recommended_ref["value"] or ""
+            if recommended_value not in options:
+                recommended_value = ""
+                recommended_ref["value"] = None
+            ui.radio(options, value=recommended_value, on_change=_set_recommended).props("inline")
+
+        def _set_recommended(event: Any) -> None:
+            recommended_ref["value"] = str(event.value) or None
+
+        with dialog, ui.card().classes("min-w-[620px] max-w-[760px]").style("padding: 16px 20px;"):
+            ui.label("Certification pathways").classes("dialog-title")
+            ui.label(project.metadata.project_title).classes("dialog-subtitle")
+            if catalog_error:
+                ui.label("The renderer certification catalog is unavailable.").classes("section-label")
+                ui.label(catalog_error).style("font-size: 12.5px; color: var(--warning); line-height: 1.55;")
+            else:
+                ui.label("Shown pathways").classes("section-label")
+                _pathway_rows()
+            with ui.row().classes("w-full justify-end gap-2"):
+                ui.button("Cancel", on_click=dialog.close, color=None).props("flat unelevated no-caps").classes(
+                    "action-btn"
+                )
+                if not catalog_error:
+                    ui.button("Use default", on_click=_use_default, color=None).props(
+                        "flat unelevated no-caps"
+                    ).classes("action-btn")
+                    ui.button("Save", on_click=_save, color=None).props("flat unelevated no-caps").classes(
+                        "action-btn is-primary"
+                    )
+        await dialog
+        trace_event("ui.certification_pathways.closed", project=project.project_path)
 
     def _event_value(args: Any) -> str:
         if isinstance(args, str):

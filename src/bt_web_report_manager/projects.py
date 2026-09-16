@@ -15,6 +15,7 @@ from typing import Any
 import yaml
 from ruamel.yaml import YAML
 
+from bt_web_report_manager.certification_pathways import CatalogPathway, validate_certification_pathways
 from bt_web_report_manager.git_status import read_git_status
 from bt_web_report_manager.locks import read_lock
 from bt_web_report_manager.models import GitStatus, ManagerSettings, ProjectMetadata, ProjectStatus
@@ -132,6 +133,9 @@ def read_project_metadata(project_path: Path) -> ProjectMetadata:
     phpp_path = (project_path / phpp_raw).resolve() if phpp_raw else None
     data_dir = (project_path / data_raw).resolve()
     access_mode, access_allowed_emails, access_warning = _parse_project_access(publishing.get("access"))
+    certification_pathways_show, certification_pathways_recommended = _parse_certification_pathways(
+        raw.get("certification_pathways")
+    )
     metadata = ProjectMetadata(
         slug=str(raw.get("slug") or project_path.name),
         project_title=str(raw.get("project_title") or raw.get("building_name") or project_path.name),
@@ -144,9 +148,23 @@ def read_project_metadata(project_path: Path) -> ProjectMetadata:
         access_mode=access_mode,
         access_allowed_emails=access_allowed_emails,
         access_warning=access_warning,
+        certification_pathways_show=certification_pathways_show,
+        certification_pathways_recommended=certification_pathways_recommended,
     )
     trace_event("projects.metadata.done", path=project_yaml, metadata=metadata)
     return metadata
+
+
+def _parse_certification_pathways(value: Any) -> tuple[tuple[str, ...] | None, str | None]:
+    # A malformed block reads as the default rather than failing the whole metadata
+    # read; the renderer build reports the schema error.
+    if not isinstance(value, dict):
+        return None, None
+    show = value.get("show")
+    recommended = value.get("recommended")
+    if not isinstance(show, list) or any(not isinstance(item, str) for item in show):
+        return None, None
+    return tuple(show), recommended if isinstance(recommended, str) else None
 
 
 def _parse_project_access(access: Any) -> tuple[str, tuple[str, ...], str | None]:
@@ -253,6 +271,55 @@ def set_project_access(project_path: Path, mode: str, allowed_emails: list[str] 
         mode=mode,
         allowed_emails=emails,
     )
+    return project_yaml
+
+
+def set_certification_pathways(
+    project_path: Path,
+    show: list[str] | tuple[str, ...],
+    recommended: str | None,
+    catalog: list[CatalogPathway] | tuple[CatalogPathway, ...] | None = None,
+) -> Path:
+    """Set an explicit ordered certification-pathway selection in project.yaml."""
+    project_yaml = project_path / "project.yaml"
+    trace_event(
+        "projects.certification_pathways.set.start",
+        project_path=project_path,
+        project_yaml=project_yaml,
+        show=show,
+        recommended=recommended,
+    )
+    if not project_yaml.exists():
+        raise ValueError(f"project.yaml does not exist: {project_yaml}")
+    normalized_show, normalized_recommended = validate_certification_pathways(show, recommended, catalog)
+    raw, yaml_rt = _read_project_yaml_round_trip(project_yaml)
+    selection = _ensure_mapping_section(raw, "certification_pathways")
+    selection["show"] = list(normalized_show)
+    if normalized_recommended is not None:
+        selection["recommended"] = normalized_recommended
+    else:
+        selection.pop("recommended", None)
+    _write_project_yaml_round_trip(project_yaml, yaml_rt, raw)
+    trace_event(
+        "projects.certification_pathways.set.done",
+        project_path=project_path,
+        project_yaml=project_yaml,
+        show=normalized_show,
+        recommended=normalized_recommended,
+    )
+    return project_yaml
+
+
+def clear_certification_pathways(project_path: Path) -> Path:
+    """Remove the explicit selection so the renderer uses its default pathways."""
+    project_yaml = project_path / "project.yaml"
+    trace_event("projects.certification_pathways.clear.start", project_path=project_path, project_yaml=project_yaml)
+    if not project_yaml.exists():
+        raise ValueError(f"project.yaml does not exist: {project_yaml}")
+    raw, yaml_rt = _read_project_yaml_round_trip(project_yaml)
+    raw.pop("certification_pathways", None)
+    _write_project_yaml_round_trip(project_yaml, yaml_rt, raw)
+    trace_event("projects.certification_pathways.clear.done", project_path=project_path, project_yaml=project_yaml)
     return project_yaml
 
 
