@@ -172,7 +172,9 @@ def test_set_and_clear_certification_pathways_preserve_comments_and_other_keys(t
 
 
 def test_default_ids_match_template_when_present() -> None:
-    source = Path(__file__).parents[2] / "bt-web-report-template" / "src" / "data" / "certification-pathway-selection.mjs"
+    source = (
+        Path(__file__).parents[2] / "bt-web-report-template" / "src" / "data" / "certification-pathway-selection.mjs"
+    )
     if not source.exists():
         pytest.skip("Template default pathway module is not present in this checkout.")
     match = re.search(r"DEFAULT_CERTIFICATION_PATHWAY_IDS\s*=\s*\[([^\]]+)]", source.read_text(), re.DOTALL)
